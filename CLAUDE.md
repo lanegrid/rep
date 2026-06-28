@@ -1,0 +1,101 @@
+# rep
+
+`rep` is a CLI that lets AI coding agents and developers run repository-wide
+renames / token migrations safely. It treats a mechanical change as an explicit,
+machine-readable pipeline:
+
+```text
+scan -> plan -> apply -> residual -> status
+```
+
+It operates only on git-tracked files, performs explicit literal mappings (no
+regex, no automatic case handling), and emits stable JSON for every command.
+
+## Bash / task execution convention
+
+This repository's execution entry point is `mise run <task>`. Every bash tool
+call must follow these rules.
+
+1. **Route every bash tool call through `mise run <task>`.** Do not invoke
+   `cargo` / `pnpm` / `python` / `node` / `tsc` / `uv run` etc. directly. All
+   execution is consolidated into tasks so runs are reproducible and reviewable.
+2. **Name tasks `<namespace>:<verb>`.** `<namespace>` is the full package name
+   (`rep` — never abbreviated), `<verb>` is a verb (nestable with `:`). The only
+   sanctioned non-package namespaces are the cross-cutting umbrellas `repo:*`,
+   `git:*`, `studio:*`. The canonical task list lives in
+   `docs/operations/tasks.md`.
+3. **Raw bash is allowed only when unavoidable, and only read-only.** Observation
+   commands (`ls`, `cat`, `grep`, `git status`, `git log`, …) may be raw. Raw
+   bash that writes or has side effects is forbidden. The sole write exception is
+   `commit` / `push` / `gh pr create`, managed by the git-workflow skill — follow
+   `/git-workflow`.
+4. **Do not make output lossy.** Do not suppress with `2>/dev/null` / `|| true`,
+   and do not trim with `tail` / `head` / pipes. Read the full output of a
+   `mise run` (including errors) and judge from it.
+5. **If a needed command can't run via `mise run`, add a task — don't fall back
+   to raw bash.** Define it in `tasks.toml` (`packages/<pkg>/tasks.toml`, or the
+   top-level `tasks.toml`/`mise.toml` for cross-cutting work) and document its
+   trigger / prerequisites in the owning skill (or `docs/operations/tasks.md`).
+   "Just this once, raw" is debt.
+6. **One bash tool call = one purpose.** No decorative separators like
+   `echo "==="`. Do not chain independent observations with `;` / `&&` into a
+   single call (it makes it ambiguous which output belongs to which command and
+   buries failures). Split independent observations into separate tool calls —
+   run them in parallel when there is no dependency.
+
+## Development
+
+This project uses [mise](https://mise.jdx.dev/) for task running. Tasks are
+defined in `mise.toml` and documented in `docs/operations/tasks.md`.
+
+| Command | Description |
+|---------|-------------|
+| `mise run rep:verify` | Run all checks (fmt, check, lint, test, build) |
+| `mise run rep:fmt` | Check formatting |
+| `mise run rep:fmt:fix` | Fix formatting |
+| `mise run rep:lint` | Run clippy lints |
+| `mise run rep:lint:fix` | Fix clippy lints |
+| `mise run rep:test` | Run tests |
+| `mise run rep:build` | Build debug binary |
+| `mise run rep:build:release` | Build release binary |
+| `mise run rep:install` | Build and install `rep` locally (dogfooding) |
+
+### Before committing
+
+Always run `mise run rep:verify` before committing to ensure formatting, clippy,
+tests, and the build all pass.
+
+## Project structure
+
+```text
+src/
+├── main.rs         # Entry point: parse CLI, dispatch, map errors to exit codes
+├── lib.rs          # Library root
+├── cli.rs          # clap argument parsing
+├── error.rs        # Error type + fixed exit codes
+├── schema.rs       # Stable schema_version identifiers
+├── output/         # Styled human output + JSON printing
+├── git/            # Git abstraction (query + mutation)
+├── globset.rs      # Minimal include/exclude glob matching
+├── text.rs         # Literal mappings, replacement, occurrence counting
+├── scope.rs        # Scope resolution + file gathering + hashing
+├── path_rename.rs  # File-level rename planning + conflict detection
+├── scanner.rs      # `rep scan`
+├── planner.rs      # `rep plan`
+├── applier.rs      # `rep apply`
+├── residual.rs     # `rep residual`
+├── status.rs       # `rep status`
+└── artifacts.rs    # `.rep/` plan model + read/write + state pointer
+tests/
+└── cli.rs          # End-to-end CLI tests (acceptance criteria)
+```
+
+## Exit codes
+
+```text
+0  success            5  stale plan          9  apply failed
+1  general error      6  path conflict       10 invalid arguments
+2  no matches         7  file hash mismatch
+3  not a git repo     8  residual found
+4  tracked tree dirty
+```
