@@ -77,6 +77,7 @@ defined in `mise.toml` and documented in `docs/operations/tasks.md`.
 | `mise run rep:build` | Build debug binary |
 | `mise run rep:build:release` | Build release binary |
 | `mise run rep:install` | Build and install `rep` locally (dogfooding) |
+| `mise run rep:smoke` | Run the full pipeline against a throwaway temp repo (dev check) |
 
 ### Before committing
 
