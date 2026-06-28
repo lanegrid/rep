@@ -26,6 +26,7 @@ Tasks are named `<namespace>:<verb>`:
 | `mise run rep:build` | Build the debug binary |
 | `mise run rep:build:release` | Build the release binary |
 | `mise run rep:install` | Build and install `rep` locally (dogfooding) |
+| `mise run rep:smoke` | Run the full pipeline against a throwaway temp repo (dev check) |
 
 ## Releasing
 

@@ -38,3 +38,43 @@ run = "cargo build --release --quiet"
 description = "Build and install rep locally (for dogfooding)"
 run = "cargo install --path . --quiet"
 depends = ["rep:build:release"]
+
+[tasks."rep:smoke"]
+description = "Run the full pipeline against a throwaway temp repo (dev check)"
+depends = ["rep:build"]
+run = '''
+set -eu
+BIN="$PWD/target/debug/rep"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+cd "$TMP"
+
+git init -q
+git config user.email dev@example.com
+git config user.name dev
+mkdir -p src
+printf 'export const OLDNAME_DATA_ROOT = "~/Movies/oldname"\nexport class OldNameClient {}\n' > src/oldname.ts
+printf '# project\n' > README.md
+git add .
+git commit -qm init
+
+printf '\n# scan\n'
+"$BIN" scan oldname --case-insensitive --json
+
+printf '\n# plan\n'
+PLAN_JSON="$("$BIN" plan --map oldname=newname --map OldName=NewName --map OLDNAME=NEWNAME --rename-paths --json)"
+printf '%s\n' "$PLAN_JSON"
+PLAN_ID="$(printf '%s' "$PLAN_JSON" | grep '"plan_id"' | head -1 | sed 's/.*": "\(.*\)".*/\1/')"
+
+printf '\n# apply\n'
+"$BIN" apply --plan "$PLAN_ID" --json
+
+printf '\n# residual\n'
+"$BIN" residual oldname --case-insensitive --json
+
+printf '\n# status\n'
+"$BIN" status --json
+
+printf '\n# resulting tracked files\n'
+git ls-files
+'''
