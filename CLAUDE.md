@@ -26,9 +26,10 @@ call must follow these rules.
    `docs/operations/tasks.md`.
 3. **Raw bash is allowed only when unavoidable, and only read-only.** Observation
    commands (`ls`, `cat`, `grep`, `git status`, `git log`, …) may be raw. Raw
-   bash that writes or has side effects is forbidden. The sole write exception is
-   `commit` / `push` / `gh pr create`, managed by the git-workflow skill — follow
-   `/git-workflow`.
+   bash that writes or has side effects is forbidden. The write exceptions are
+   the operations owned by a managed flow: `commit` / `push` / `gh pr create`
+   (the git-workflow skill — follow `/git-workflow`) and the version bump / tag /
+   `gh release create` of a release (the release skill — follow `/release`).
 4. **Do not make output lossy.** Do not suppress with `2>/dev/null` / `|| true`,
    and do not trim with `tail` / `head` / pipes. Read the full output of a
    `mise run` (including errors) and judge from it.
@@ -81,6 +82,20 @@ defined in `mise.toml` and documented in `docs/operations/tasks.md`.
 
 Always run `mise run rep:verify` before committing to ensure formatting, clippy,
 tests, and the build all pass.
+
+### Releasing
+
+Use the `/release` skill to cut a new version:
+
+```
+/release <version>
+```
+
+It bumps `Cargo.toml`, runs `mise run rep:verify`, commits `chore: release
+vX.X.X`, tags `vX.X.X`, and creates the GitHub release. Pushing the tag triggers
+`.github/workflows/release.yml`, which builds multi-target binaries and attaches
+them (plus `install.sh`) to the release. CI (`.github/workflows/ci.yml`) runs
+test / fmt / clippy / build / lockfile on every push and PR to `main`.
 
 ## Project structure
 
