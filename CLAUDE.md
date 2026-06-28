@@ -45,25 +45,20 @@ call must follow these rules.
 
 ## Codebase content convention
 
-Keep the codebase self-contained. Do not embed references that only make sense
-inside a transient context the code itself does not carry — they are dead
-pointers to a future reader.
+Keep the codebase self-contained. Do not embed references that only resolve
+inside a transient context the code itself does not carry (a review thread, a
+chat, an external tracker). To a future reader they are dead pointers.
 
-Forbidden in code, comments, test names, commit-referenced identifiers, and
-artifacts:
+This applies to code, comments, test names, and artifacts. Forbidden:
 
-- Review / conversation identifiers (e.g. `D1`, `D2`, "second-opinion review",
-  "as discussed", "per the thread").
-- Bare ticket / PR / issue numbers used as the *only* explanation (`fixes D3`,
-  `see PR #2`) without stating the actual reason inline.
-- Spec section numbers as a substitute for describing the behavior (`AC7`,
-  "section 7.6") — describe what the code does, not where it was once written.
+- Identifiers from a review or conversation used as labels.
+- A ticket, PR, or issue number used as the only explanation, without the actual
+  reason stated inline.
+- A document section number used in place of describing the behavior.
 
-Instead, name things by the behavior or rule they encode. A test is
-`hash_mismatch_fails_apply`, not `ac7_...`; a comment explains *why the code
-behaves this way*, not which review round requested it. Durable references to
-files that live in this repo (paths, module names, `docs/operations/tasks.md`)
-are fine.
+Instead, name things by the behavior or rule they encode, and let comments
+explain why the code behaves as it does. Durable references to files that live
+in this repo (paths, module names) are fine.
 
 ## Development
 
