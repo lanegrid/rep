@@ -41,6 +41,14 @@ pub fn plan_renames(
             continue;
         }
 
+        // Case-only renames are unsafe on case-insensitive filesystems; the
+        // minimal version rejects them rather than guessing the filesystem.
+        if from.eq_ignore_ascii_case(&to) {
+            return Err(RepError::PathConflict(format!(
+                "case-only rename '{from}' -> '{to}' is unsafe (case_only_rename_unsafe)"
+            )));
+        }
+
         // Two sources rewriting to the same target.
         if let Some(other) = targets.get(&to) {
             return Err(RepError::PathConflict(format!(

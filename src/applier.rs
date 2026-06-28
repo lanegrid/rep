@@ -54,56 +54,72 @@ pub fn run(plan_id: String, json: bool) -> Result<i32> {
     let mut plan = artifacts::read_plan(&root, &plan_id)?;
 
     // --- validation (all before any write) ---
+    //
+    // A failure that invalidates the plan itself (stale HEAD, changed file,
+    // conflicting target) transitions the plan to `failed`. A dirty tracked
+    // tree is a transient, external condition — the plan is still valid — so it
+    // leaves the state as `planned`.
     if plan.repo.root != root.to_string_lossy() {
-        return Err(RepError::StalePlan(format!(
+        let msg = format!(
             "plan was created for repo '{}', current repo is '{}'",
             plan.repo.root,
             root.display()
-        )));
+        );
+        return fail(&root, &mut plan, RepError::StalePlan(msg));
     }
 
     let current_head = git::head(&root)?;
-    let git_head_matched = current_head == plan.repo.git_head;
-    if !git_head_matched {
-        return Err(RepError::StalePlan(format!(
+    if current_head != plan.repo.git_head {
+        let msg = format!(
             "git HEAD changed since plan was created (plan: {}, now: {current_head})",
             plan.repo.git_head
-        )));
+        );
+        return fail(&root, &mut plan, RepError::StalePlan(msg));
     }
 
     if !git::tracked_tree_clean(&root) {
+        // Transient: keep state = planned so it can be retried after committing.
         return Err(RepError::TrackedTreeDirty);
     }
 
     // Verify before-hashes for every file the plan touches.
+    let mut hash_mismatch: Option<String> = None;
     for f in &plan.content.files {
-        let actual = scope::sha256_file(&root.join(&f.path))?;
-        if actual != f.sha256_before {
-            return Err(RepError::FileHashMismatch(f.path.clone()));
+        if scope::sha256_file(&root.join(&f.path))? != f.sha256_before {
+            hash_mismatch = Some(f.path.clone());
+            break;
         }
     }
-    for r in &plan.paths.renames {
-        let actual = scope::sha256_file(&root.join(&r.from))?;
-        if actual != r.sha256_before {
-            return Err(RepError::FileHashMismatch(r.from.clone()));
+    if hash_mismatch.is_none() {
+        for r in &plan.paths.renames {
+            if scope::sha256_file(&root.join(&r.from))? != r.sha256_before {
+                hash_mismatch = Some(r.from.clone());
+                break;
+            }
         }
+    }
+    if let Some(path) = hash_mismatch {
+        return fail(&root, &mut plan, RepError::FileHashMismatch(path));
     }
 
     // Re-check that rename targets are still free.
     let tracked: HashSet<String> = git::tracked_set(&root)?;
+    let mut conflict: Option<String> = None;
     for r in &plan.paths.renames {
         if tracked.contains(&r.to) && !plan.paths.renames.iter().any(|x| x.from == r.to) {
-            return Err(RepError::PathConflict(format!(
+            conflict = Some(format!(
                 "rename target '{}' now exists as a tracked file",
                 r.to
-            )));
+            ));
+            break;
         }
         if root.join(&r.to).exists() {
-            return Err(RepError::PathConflict(format!(
-                "rename target '{}' now exists on disk",
-                r.to
-            )));
+            conflict = Some(format!("rename target '{}' now exists on disk", r.to));
+            break;
         }
+    }
+    if let Some(msg) = conflict {
+        return fail(&root, &mut plan, RepError::PathConflict(msg));
     }
 
     // --- mutation ---
@@ -177,6 +193,12 @@ fn apply_changes(root: &std::path::Path, plan: &Plan) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Record the plan as failed and return the originating error.
+fn fail(root: &std::path::Path, plan: &mut Plan, err: RepError) -> Result<i32> {
+    mark_failed(root, plan);
+    Err(err)
 }
 
 fn mark_failed(root: &std::path::Path, plan: &mut Plan) {

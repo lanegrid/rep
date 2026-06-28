@@ -76,6 +76,18 @@ content or paths. Untracked files and anything outside the repo are left alone.
 4  tracked tree dirty
 ```
 
+With `--json`, both success **and** failure print JSON: the exit code controls
+flow, the JSON explains it. Failures emit a `rep.error.v1` envelope on stdout:
+
+```json
+{
+  "schema_version": "rep.error.v1",
+  "error": { "kind": "tracked_tree_dirty", "message": "...", "exit_code": 4 }
+}
+```
+
+A `plan` that would change nothing exits `2` and writes no artifacts.
+
 ## Development
 
 This repository uses [mise](https://mise.jdx.dev/) for task running; see

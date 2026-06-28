@@ -68,12 +68,15 @@ pub struct Gathered {
     pub utf8_decode_skipped: usize,
 }
 
-/// Reject any attempt to include or target `.rep/` (safety invariant).
+/// Reject any attempt to *include* `.rep/` (safety invariant).
+///
+/// Excluding `.rep/` is harmless (it is always excluded anyway), so only
+/// `--include` is rejected.
 pub fn reject_rep_dir(opts: &ScopeOpts) -> Result<()> {
-    for g in opts.include.iter().chain(opts.exclude.iter()) {
+    for g in opts.include.iter() {
         if g == schema::REP_DIR || g.starts_with(".rep/") || g.starts_with(".rep\\") {
             return Err(RepError::InvalidArguments(format!(
-                "'{g}' targets the reserved {} directory, which is always excluded",
+                "--include '{g}' targets the reserved {} directory, which is always excluded",
                 schema::REP_DIR
             )));
         }
@@ -193,7 +196,17 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     out
 }
 
-/// Hex-encoded SHA-256 of a file on disk.
+/// Hex-encoded SHA-256 identifying a path's content.
+///
+/// For symlinks the link *target string* is hashed rather than following the
+/// link, so a tracked symlink can be rename-planned without ever reading a file
+/// that may live outside the repository.
 pub fn sha256_file(path: &Path) -> Result<String> {
-    Ok(sha256_hex(&std::fs::read(path)?))
+    let meta = std::fs::symlink_metadata(path)?;
+    if meta.file_type().is_symlink() {
+        let target = std::fs::read_link(path)?;
+        Ok(sha256_hex(target.to_string_lossy().as_bytes()))
+    } else {
+        Ok(sha256_hex(&std::fs::read(path)?))
+    }
 }

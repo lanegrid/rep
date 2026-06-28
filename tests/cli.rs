@@ -334,3 +334,162 @@ fn include_rep_rejected_exit_10() {
     );
     assert_eq!(res.code, 10);
 }
+
+// --- D1: --json failures emit a machine-readable error envelope ---
+#[test]
+fn d1_json_error_output() {
+    let dir = setup_success_example();
+    let plan_id = plan_three_maps(dir.path(), &[]);
+    write(dir.path(), "README.md", "# dirtied\n"); // make tree dirty
+    let res = rep(dir.path(), &["apply", "--plan", &plan_id, "--json"]);
+    assert_eq!(res.code, 4);
+    let json = res.json();
+    assert_eq!(json["schema_version"], "rep.error.v1");
+    assert_eq!(json["error"]["kind"], "tracked_tree_dirty");
+    assert_eq!(json["error"]["exit_code"], 4);
+}
+
+// --- D2: stale/hash failures record state=failed; dirty stays planned ---
+#[test]
+fn d2_hash_mismatch_marks_failed() {
+    let dir = setup_success_example();
+    write(
+        dir.path(),
+        "src/oldname.ts",
+        "export class OldNameClient {} // oldname extra\n",
+    );
+    let plan_id = plan_three_maps(dir.path(), &[]);
+    git(dir.path(), &["checkout", "--", "src/oldname.ts"]);
+    let res = rep(dir.path(), &["apply", "--plan", &plan_id, "--json"]);
+    assert_eq!(res.code, 7);
+    let status = rep(dir.path(), &["status", "--json"]);
+    assert_eq!(status.json()["state"], "failed");
+}
+
+#[test]
+fn d2_dirty_tree_stays_planned() {
+    let dir = setup_success_example();
+    let plan_id = plan_three_maps(dir.path(), &[]);
+    write(dir.path(), "README.md", "# dirtied\n");
+    let res = rep(dir.path(), &["apply", "--plan", &plan_id, "--json"]);
+    assert_eq!(res.code, 4);
+    // A transient dirty tree must not mark the plan failed.
+    let status = rep(dir.path(), &["status", "--json"]);
+    assert_eq!(status.json()["state"], "planned");
+}
+
+// --- D3: case-only rename is rejected with exit code 6 ---
+#[test]
+fn d3_case_only_rename_rejected() {
+    let dir = init_repo();
+    write(dir.path(), "Foo.txt", "x\n");
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "init"]);
+    let res = rep(
+        dir.path(),
+        &["plan", "--map", "Foo=foo", "--rename-paths", "--json"],
+    );
+    assert_eq!(res.code, 6);
+}
+
+// --- D4: a no-op plan returns exit code 2 and writes no artifacts ---
+#[test]
+fn d4_no_op_plan_exit_2() {
+    let dir = init_repo();
+    write(dir.path(), "hello.txt", "hello world\n");
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "init"]);
+    let res = rep(dir.path(), &["plan", "--map", "absent=present", "--json"]);
+    assert_eq!(res.code, 2);
+    assert!(!dir.path().join(".rep/plans").exists());
+}
+
+// --- D5: the content preview artifact is named content-preview.txt ---
+#[test]
+fn d5_content_preview_artifact_name() {
+    let dir = setup_success_example();
+    let plan_id = plan_three_maps(dir.path(), &[]);
+    let base = dir.path().join(format!(".rep/plans/{plan_id}"));
+    assert!(base.join("content-preview.txt").exists());
+    assert!(!base.join("content.patch").exists());
+}
+
+// --- D6: distinct plans get distinct ids and directories ---
+#[test]
+fn d6_plan_ids_are_unique() {
+    let dir = setup_success_example();
+    let id1 = plan_three_maps(dir.path(), &[]);
+    let id2 = plan_three_maps(dir.path(), &[]);
+    assert_ne!(id1, id2);
+    assert!(
+        dir.path()
+            .join(format!(".rep/plans/{id1}/plan.json"))
+            .exists()
+    );
+    assert!(
+        dir.path()
+            .join(format!(".rep/plans/{id2}/plan.json"))
+            .exists()
+    );
+}
+
+// --- D7: a tracked symlink can be rename-planned without reading its target ---
+#[cfg(unix)]
+#[test]
+fn d7_symlink_rename_does_not_follow_target() {
+    use std::os::unix::fs::symlink;
+    let dir = init_repo();
+    // Symlink whose target lives outside the repo and does not exist.
+    symlink(
+        "/nonexistent/outside/oldname-target",
+        dir.path().join("oldname-link"),
+    )
+    .unwrap();
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "init"]);
+    let res = rep(
+        dir.path(),
+        &[
+            "plan",
+            "--map",
+            "oldname=newname",
+            "--rename-paths",
+            "--json",
+        ],
+    );
+    assert_eq!(res.code, 0, "plan failed: {}", res.stdout);
+    let plan_id = res.json()["plan_id"].as_str().unwrap().to_string();
+    let apply = rep(dir.path(), &["apply", "--plan", &plan_id, "--json"]);
+    assert_eq!(apply.code, 0, "apply failed: {}", apply.stdout);
+    // The target is a dangling symlink, so use symlink_metadata (exists() follows links).
+    assert!(std::fs::symlink_metadata(dir.path().join("newname-link")).is_ok());
+    assert!(std::fs::symlink_metadata(dir.path().join("oldname-link")).is_err());
+}
+
+// --- D8: excluding .rep is allowed (only --include is rejected) ---
+#[test]
+fn d8_exclude_rep_allowed() {
+    let dir = setup_success_example();
+    let res = rep(
+        dir.path(),
+        &["scan", "oldname", "--exclude", ".rep/**", "--json"],
+    );
+    assert_eq!(res.code, 0);
+}
+
+// --- D9: matched_directories reports the token-bearing directory prefix ---
+#[test]
+fn d9_matched_directory_prefix() {
+    let dir = init_repo();
+    write(
+        dir.path(),
+        "packages/oldname-core/src/index.ts",
+        "content\n",
+    );
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "init"]);
+    let res = rep(dir.path(), &["scan", "oldname", "--json"]);
+    let dirs = res.json()["paths"]["matched_directories"].clone();
+    let dirs = dirs.as_array().unwrap();
+    assert!(dirs.iter().any(|d| d == "packages/oldname-core"));
+}

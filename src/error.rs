@@ -16,7 +16,10 @@
 //! 10 invalid arguments
 //! ```
 
+use serde::Serialize;
 use thiserror::Error;
+
+use crate::schema;
 
 /// Result type alias for rep operations.
 pub type Result<T> = std::result::Result<T, RepError>;
@@ -75,4 +78,48 @@ impl RepError {
             RepError::Json(_) => 1,
         }
     }
+
+    /// Stable, machine-readable kind for the JSON error output.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            RepError::General(_) => "general_error",
+            RepError::NotAGitRepository => "not_a_git_repository",
+            RepError::TrackedTreeDirty => "tracked_tree_dirty",
+            RepError::StalePlan(_) => "stale_plan",
+            RepError::PathConflict(_) => "path_conflict",
+            RepError::FileHashMismatch(_) => "file_hash_mismatch",
+            RepError::ApplyFailed(_) => "apply_failed",
+            RepError::InvalidArguments(_) => "invalid_arguments",
+            RepError::Git(_) => "git_error",
+            RepError::Io(_) => "io_error",
+            RepError::Json(_) => "json_error",
+        }
+    }
+
+    /// Build the machine-readable error envelope for `--json` failures.
+    pub fn to_output(&self) -> ErrorOutput {
+        ErrorOutput {
+            schema_version: schema::ERROR.to_string(),
+            error: ErrorBody {
+                kind: self.kind().to_string(),
+                message: self.to_string(),
+                exit_code: self.exit_code(),
+            },
+        }
+    }
+}
+
+/// The `error` field of [`ErrorOutput`].
+#[derive(Serialize)]
+pub struct ErrorBody {
+    pub kind: String,
+    pub message: String,
+    pub exit_code: i32,
+}
+
+/// Machine-readable error envelope (`rep.error.v1`).
+#[derive(Serialize)]
+pub struct ErrorOutput {
+    pub schema_version: String,
+    pub error: ErrorBody,
 }
