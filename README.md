@@ -88,6 +88,24 @@ flow, the JSON explains it. Failures emit a `rep.error.v1` envelope on stdout:
 
 A `plan` that would change nothing exits `2` and writes no artifacts.
 
+## Installation
+
+```bash
+# Quick install (macOS/Linux)
+curl -fsSL https://github.com/lanegrid/rep/releases/latest/download/install.sh | sh
+
+# From source
+git clone https://github.com/lanegrid/rep.git
+cd rep
+cargo install --path .
+```
+
+Pre-built binaries are attached to each [GitHub release](https://github.com/lanegrid/rep/releases) for:
+
+- macOS (Intel & Apple Silicon)
+- Linux (x64 & ARM64)
+- Windows (x64)
+
 ## Development
 
 This repository uses [mise](https://mise.jdx.dev/) for task running; see

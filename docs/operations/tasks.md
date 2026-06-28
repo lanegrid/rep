@@ -27,6 +27,12 @@ Tasks are named `<namespace>:<verb>`:
 | `mise run rep:build:release` | Build the release binary |
 | `mise run rep:install` | Build and install `rep` locally (dogfooding) |
 
+## Releasing
+
+Releases are not a mise task — use the `/release` skill (`/release <version>`).
+It bumps the version, runs `mise run rep:verify`, commits, tags `vX.X.X`, and
+creates the GitHub release; pushing the tag triggers the binary-build workflow.
+
 ## Adding a task
 
 When you need a command that no task covers, add a task rather than running raw
