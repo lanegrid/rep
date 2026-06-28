@@ -1,0 +1,40 @@
+[tasks."rep:verify"]
+description = "Run all checks (fmt, check, lint, test, build)"
+depends = ["rep:fmt", "rep:check", "rep:lint", "rep:test", "rep:build"]
+
+[tasks."rep:check"]
+description = "Run cargo check"
+run = "cargo check --all-targets --all-features --quiet"
+
+[tasks."rep:fmt"]
+description = "Check code formatting"
+run = "cargo fmt --all --check --quiet"
+
+[tasks."rep:fmt:fix"]
+description = "Fix code formatting"
+run = "cargo fmt --all"
+
+[tasks."rep:lint"]
+description = "Run clippy lints"
+run = "cargo clippy --all-targets --all-features --quiet -- -D warnings"
+
+[tasks."rep:lint:fix"]
+description = "Fix clippy lints where possible"
+run = "cargo clippy --all-targets --all-features --fix --allow-dirty --allow-staged --quiet -- -D warnings"
+
+[tasks."rep:test"]
+description = "Run tests"
+run = "cargo test --quiet"
+
+[tasks."rep:build"]
+description = "Build debug binary"
+run = "cargo build --quiet"
+
+[tasks."rep:build:release"]
+description = "Build release binary"
+run = "cargo build --release --quiet"
+
+[tasks."rep:install"]
+description = "Build and install rep locally (for dogfooding)"
+run = "cargo install --path . --quiet"
+depends = ["rep:build:release"]
