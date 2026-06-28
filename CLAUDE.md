@@ -43,6 +43,28 @@ call must follow these rules.
    buries failures). Split independent observations into separate tool calls —
    run them in parallel when there is no dependency.
 
+## Codebase content convention
+
+Keep the codebase self-contained. Do not embed references that only make sense
+inside a transient context the code itself does not carry — they are dead
+pointers to a future reader.
+
+Forbidden in code, comments, test names, commit-referenced identifiers, and
+artifacts:
+
+- Review / conversation identifiers (e.g. `D1`, `D2`, "second-opinion review",
+  "as discussed", "per the thread").
+- Bare ticket / PR / issue numbers used as the *only* explanation (`fixes D3`,
+  `see PR #2`) without stating the actual reason inline.
+- Spec section numbers as a substitute for describing the behavior (`AC7`,
+  "section 7.6") — describe what the code does, not where it was once written.
+
+Instead, name things by the behavior or rule they encode. A test is
+`hash_mismatch_fails_apply`, not `ac7_...`; a comment explains *why the code
+behaves this way*, not which review round requested it. Durable references to
+files that live in this repo (paths, module names, `docs/operations/tasks.md`)
+are fine.
+
 ## Development
 
 This project uses [mise](https://mise.jdx.dev/) for task running. Tasks are
