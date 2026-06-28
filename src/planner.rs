@@ -62,7 +62,7 @@ pub fn run(opts: PlanOpts, json: bool) -> Result<i32> {
     // --- content operations ---
     let mut content_files: Vec<ContentFile> = Vec::new();
     let mut replacements = 0;
-    let mut patch = String::new();
+    let mut preview = String::new();
     if opts.content {
         for file in &gathered.files {
             let (new_content, n) = text::apply(&file.content, &opts.maps);
@@ -74,7 +74,7 @@ pub fn run(opts: PlanOpts, json: bool) -> Result<i32> {
                 path: file.path.clone(),
                 sha256_before: scope::sha256_hex(file.content.as_bytes()),
             });
-            append_patch(&mut patch, &file.path, &file.content, &new_content);
+            append_preview(&mut preview, &file.path, &file.content, &new_content);
         }
     }
     let changed_files = content_files.len();
@@ -97,7 +97,24 @@ pub fn run(opts: PlanOpts, json: bool) -> Result<i32> {
             })?;
     }
 
-    let plan_id = new_plan_id();
+    // A plan that would change nothing is reported as "no matches" (exit 2) and
+    // no artifacts are written, so agents don't mistake it for real work.
+    if changed_files == 0 && renames.is_empty() {
+        if json {
+            output::print_json(&serde_json::json!({
+                "schema_version": schema::PLAN,
+                "state": "none",
+                "no_op": true,
+                "content": { "changed_files": 0, "replacements": 0 },
+                "paths": { "renames": 0 },
+            }))?;
+        } else {
+            output::warn("no changes to plan for the given mappings");
+        }
+        return Ok(2);
+    }
+
+    let plan_id = unique_plan_id(&root);
     let artifact_paths = artifacts::artifact_paths(&plan_id);
     let created_at = chrono::Local::now().to_rfc3339();
 
@@ -140,7 +157,7 @@ pub fn run(opts: PlanOpts, json: bool) -> Result<i32> {
         skipped: plan.skipped.len(),
     };
 
-    artifacts::write_plan(&root, &plan, &patch, &summary)?;
+    artifacts::write_plan(&root, &plan, &preview, &summary)?;
     artifacts::write_state(
         &root,
         &State {
@@ -176,19 +193,34 @@ pub fn run(opts: PlanOpts, json: bool) -> Result<i32> {
     Ok(0)
 }
 
-/// Generate a sortable, timestamp-based plan id.
-fn new_plan_id() -> String {
-    chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string()
+/// Generate a sortable, timestamp-based plan id, adding a numeric suffix if a
+/// plan with that id already exists (agents may create plans within the same
+/// second).
+fn unique_plan_id(root: &std::path::Path) -> String {
+    let base = chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
+    if !artifacts::plan_dir(root, &base).exists() {
+        return base;
+    }
+    let mut n = 2;
+    loop {
+        let candidate = format!("{base}-{n}");
+        if !artifacts::plan_dir(root, &candidate).exists() {
+            return candidate;
+        }
+        n += 1;
+    }
 }
 
-/// Append a minimal line-level diff for a changed file to the content patch.
-fn append_patch(patch: &mut String, path: &str, before: &str, after: &str) {
-    patch.push_str(&format!("--- a/{path}\n+++ b/{path}\n"));
+/// Append a human-oriented, line-level preview for a changed file. This is a
+/// *preview only* — not a `git apply`-able patch — hence the `.txt` artifact.
+fn append_preview(preview: &mut String, path: &str, before: &str, after: &str) {
+    preview.push_str(&format!("# {path}\n"));
     for (i, (old, new)) in before.lines().zip(after.lines()).enumerate() {
         if old != new {
-            patch.push_str(&format!("@@ line {} @@\n-{old}\n+{new}\n", i + 1));
+            preview.push_str(&format!("@@ line {} @@\n- {old}\n+ {new}\n", i + 1));
         }
     }
+    preview.push('\n');
 }
 
 fn print_human(out: &PlanOutput) {

@@ -43,6 +43,23 @@ call must follow these rules.
    buries failures). Split independent observations into separate tool calls —
    run them in parallel when there is no dependency.
 
+## Codebase content convention
+
+Keep the codebase self-contained. Do not embed references that only resolve
+inside a transient context the code itself does not carry (a review thread, a
+chat, an external tracker). To a future reader they are dead pointers.
+
+This applies to code, comments, test names, and artifacts. Forbidden:
+
+- Identifiers from a review or conversation used as labels.
+- A ticket, PR, or issue number used as the only explanation, without the actual
+  reason stated inline.
+- A document section number used in place of describing the behavior.
+
+Instead, name things by the behavior or rule they encode, and let comments
+explain why the code behaves as it does. Durable references to files that live
+in this repo (paths, module names) are fine.
+
 ## Development
 
 This project uses [mise](https://mise.jdx.dev/) for task running. Tasks are

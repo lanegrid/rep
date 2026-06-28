@@ -66,13 +66,8 @@ pub fn run(token: String, case_insensitive: bool, opts: ScopeOpts, json: bool) -
     for path in &gathered.all_paths {
         if !text::find_all(path, &token, case_insensitive).is_empty() {
             matched_path_files.push(path.clone());
-            if let Some(parent) = std::path::Path::new(path).parent() {
-                let parent = parent.to_string_lossy();
-                if !parent.is_empty()
-                    && !text::find_all(&parent, &token, case_insensitive).is_empty()
-                {
-                    matched_dirs.insert(parent.into_owned());
-                }
+            if let Some(dir) = matched_directory(path, &token, case_insensitive) {
+                matched_dirs.insert(dir);
             }
         }
     }
@@ -106,6 +101,23 @@ pub fn run(token: String, case_insensitive: bool, opts: ScopeOpts, json: bool) -
     }
 
     Ok(if no_matches { 2 } else { 0 })
+}
+
+/// Return the shortest directory prefix of `path` whose final component
+/// contains `token` (e.g. `packages/oldname-core/src/index.ts` ->
+/// `packages/oldname-core`), or `None` if only the filename matches.
+fn matched_directory(path: &str, token: &str, case_insensitive: bool) -> Option<String> {
+    let comps: Vec<&str> = path.split('/').collect();
+    if comps.len() < 2 {
+        return None;
+    }
+    // Iterate over directory components only (skip the final filename).
+    for end in 0..comps.len() - 1 {
+        if !text::find_all(comps[end], token, case_insensitive).is_empty() {
+            return Some(comps[..=end].join("/"));
+        }
+    }
+    None
 }
 
 fn print_human(report: &ScanReport) {

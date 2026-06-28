@@ -21,8 +21,13 @@ fn main() -> ExitCode {
     match result {
         Ok(code) => ExitCode::from(code as u8),
         Err(e) => {
-            output::error(&e.to_string());
-            let _ = json; // human errors always go to stderr; JSON callers branch on exit code
+            if json {
+                // Machine-readable error for agents; exit code controls flow,
+                // the JSON envelope explains the failure.
+                let _ = output::print_json(&e.to_output());
+            } else {
+                output::error(&e.to_string());
+            }
             ExitCode::from(e.exit_code() as u8)
         }
     }

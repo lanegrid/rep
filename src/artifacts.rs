@@ -53,7 +53,8 @@ pub struct RepoInfo {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Artifacts {
     pub summary: String,
-    pub content_patch: String,
+    /// Human-oriented preview of content changes (not a `git apply`-able patch).
+    pub content_preview: String,
     pub path_renames: String,
     pub skipped: String,
 }
@@ -96,21 +97,26 @@ pub fn artifact_paths(plan_id: &str) -> Artifacts {
     let base = format!(".rep/plans/{plan_id}");
     Artifacts {
         summary: format!("{base}/summary.json"),
-        content_patch: format!("{base}/content.patch"),
+        content_preview: format!("{base}/content-preview.txt"),
         path_renames: format!("{base}/path-renames.json"),
         skipped: format!("{base}/skipped.json"),
     }
 }
 
 /// Write a plan and all of its sibling artifacts to disk.
-pub fn write_plan(root: &Path, plan: &Plan, content_patch: &str, summary: &Summary) -> Result<()> {
+pub fn write_plan(
+    root: &Path,
+    plan: &Plan,
+    content_preview: &str,
+    summary: &Summary,
+) -> Result<()> {
     let dir = plan_dir(root, &plan.plan_id);
     std::fs::create_dir_all(&dir)?;
     write_json(&dir.join("plan.json"), plan)?;
     write_json(&dir.join("summary.json"), summary)?;
     write_json(&dir.join("path-renames.json"), &plan.paths.renames)?;
     write_json(&dir.join("skipped.json"), &plan.skipped)?;
-    std::fs::write(dir.join("content.patch"), content_patch)?;
+    std::fs::write(dir.join("content-preview.txt"), content_preview)?;
     Ok(())
 }
 
