@@ -312,6 +312,34 @@ fn not_a_git_repo_exit_3() {
     assert_eq!(res.code, 3);
 }
 
+// --- clap usage errors map to invalid-arguments (exit 10), not clap's
+// default 2, so agents can tell a mistyped command from an empty scan ---
+#[test]
+fn unrecognized_subcommand_exit_10() {
+    let dir = init_repo();
+    let res = rep(dir.path(), &["badcmd"]);
+    assert_eq!(res.code, 10);
+}
+
+#[test]
+fn missing_required_argument_exit_10() {
+    let dir = init_repo();
+    let res = rep(dir.path(), &["scan"]);
+    assert_eq!(res.code, 10);
+}
+
+// --- a usage error under --json still emits the machine-readable envelope ---
+#[test]
+fn usage_error_json_emits_error_envelope() {
+    let dir = init_repo();
+    let res = rep(dir.path(), &["badcmd", "--json"]);
+    assert_eq!(res.code, 10);
+    let json = res.json();
+    assert_eq!(json["schema_version"], "rep.error.v1");
+    assert_eq!(json["error"]["kind"], "invalid_arguments");
+    assert_eq!(json["error"]["exit_code"], 10);
+}
+
 // --- ambiguous mappings rejected with exit code 10 ---
 #[test]
 fn ambiguous_mappings_exit_10() {
