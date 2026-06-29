@@ -79,6 +79,26 @@ impl RepError {
         }
     }
 
+    /// A concrete next step for human output, shown under the error message.
+    ///
+    /// Errors are read most often right after a failure, so where the fix is a
+    /// specific command we name it. The JSON envelope deliberately omits this
+    /// (agents branch on `exit_code`/`kind`, not prose).
+    pub fn hint(&self) -> Option<&'static str> {
+        match self {
+            RepError::NotAGitRepository => {
+                Some("Run rep inside a git repository, or `git init` here first.")
+            }
+            RepError::TrackedTreeDirty => {
+                Some("Commit or stash your other changes, then re-run the command.")
+            }
+            RepError::StalePlan(_) => {
+                Some("Rebuild it with `rep plan ...`, then `rep apply --plan <plan-id>`.")
+            }
+            _ => None,
+        }
+    }
+
     /// Stable, machine-readable kind for the JSON error output.
     pub fn kind(&self) -> &'static str {
         match self {

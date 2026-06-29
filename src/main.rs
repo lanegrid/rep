@@ -27,6 +27,9 @@ fn main() -> ExitCode {
                 let _ = output::print_json(&e.to_output());
             } else {
                 output::error(&e.to_string());
+                if let Some(hint) = e.hint() {
+                    output::action(hint);
+                }
             }
             ExitCode::from(e.exit_code() as u8)
         }
