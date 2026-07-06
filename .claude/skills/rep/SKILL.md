@@ -18,6 +18,15 @@ scan -> plan -> apply -> residual -> status
 ## Before you start
 
 - Be inside a git repository (`rep` exits `3` otherwise).
+- **Ensure `.rep/` is gitignored.** rep writes its plan artifacts there —
+  machine-managed state that must never be committed, and as an untracked
+  directory it pollutes `git status` and trips tools that require a clean
+  tree. Check and fix before the first `rep plan`:
+
+  ```bash
+  git check-ignore -q .rep || echo '.rep/' >> .gitignore
+  ```
+
 - `apply` requires a **clean tracked tree** (commit or stash first; exit `4` if
   dirty). Untracked files are never touched.
 - Mappings are **explicit and literal** — no regex, no auto case handling. Add
@@ -56,15 +65,45 @@ If `plan` exits `2`, the mappings matched nothing — re-check the tokens.
 If it exits `6`, there is a path conflict (target exists, two sources collide,
 or a case-only rename) — adjust the mappings or resolve the target first.
 
+**Many mappings?** Do not build a giant `--map` argument list. Write one
+`FROM=TO` per line (blank lines and `#` comments allowed) and pass the file —
+or pipe via stdin with `-`:
+
+```bash
+rep plan --map-file mappings.txt --json
+```
+
+**Files already renamed with `git mv`?** Derive the mappings from the staged
+renames instead of reconstructing them by hand:
+
+```bash
+git mv src/old_name.ts src/new_name.ts       # stage renames first
+rep plan --from-git-renames --json           # derives old_name=new_name
+```
+
+Only same-directory, same-extension stem changes are derivable; everything
+else (e.g. a file-to-dir move like `x.ts -> x/scene.ts`) is listed under
+`derived.underivable` with a reason — cover those with explicit `--map`
+entries. Note the staged renames leave the tree dirty, so this plan cannot be
+applied yet: record the derived mappings (they are echoed in `derived` and in
+the plan), commit the renames, then re-plan from those mappings and apply.
+
 ### 3. Review (optional)
 
-Inspect `.rep/plans/<plan_id>/summary.json` and `content-preview.txt` to confirm
-the intended changes.
+```bash
+rep show --json                    # most recent plan: mappings, counts, state
+rep show --files --skipped --json  # what it touches, and what was skipped why
+rep show --preview                 # line-level content preview
+```
+
+`rep show` is the supported way to inspect a plan — do not read
+`.rep/plans/<plan_id>/*.json` directly.
 
 ### 4. Apply
 
 ```bash
-rep apply --plan <plan_id> --json
+rep apply --last --json            # the plan you just made (rep status shows it)
+rep apply --plan <plan_id> --json  # or an explicit plan id
 ```
 
 Guarded by repo/HEAD match, clean-tree, and per-file hash checks. On failure the
@@ -75,7 +114,8 @@ moved — re-plan), `6` path conflict, `7` file changed since plan (re-plan).
 
 ```bash
 rep residual <old-token> --case-insensitive --json
-# or, against every mapping FROM in a plan:
+# or, against every mapping FROM in the plan you just applied:
+rep residual --last --json
 rep residual --plan <plan_id> --json
 ```
 
@@ -114,5 +154,17 @@ git reset --hard HEAD   # discard an applied change
 
 - `.rep/` is always excluded and cannot be re-included.
 - Scope with `--include GLOB` / `--exclude GLOB` (repeatable).
+- Excludes that hold for *every* rename in a repo (lockfiles, generated
+  artifacts) belong in a checked-in `rep.toml` at the repo root, not on each
+  command line:
+
+  ```toml
+  [scope]
+  exclude = ["pnpm-lock.yaml", "projects/*/publish.json"]
+  ```
+
+  It applies to `scan` / `plan` / `residual`; CLI globs are additive on top;
+  `--no-config` skips it for one run. Config-skipped paths are reported with
+  reason `excluded_by_config`.
 - For agents: `--json` is the contract — both success and failure print JSON;
   the exit code drives control flow.
