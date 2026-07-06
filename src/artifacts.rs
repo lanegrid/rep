@@ -138,6 +138,17 @@ pub fn update_plan(root: &Path, plan: &Plan) -> Result<()> {
     write_json(&path, plan)
 }
 
+/// Resolve the most recent plan id from the active-state pointer — the plan
+/// `rep status` reports. Backs `--last` so callers need not copy plan ids.
+pub fn last_plan_id(root: &Path) -> Result<String> {
+    match read_state(root)? {
+        Some(state) => Ok(state.active_plan_id),
+        None => Err(RepError::InvalidArguments(
+            "no plan found for --last; run `rep plan --map FROM=TO` first".to_string(),
+        )),
+    }
+}
+
 /// Read the active-state pointer, if present.
 pub fn read_state(root: &Path) -> Result<Option<State>> {
     let path = rep_dir(root).join("state.json");

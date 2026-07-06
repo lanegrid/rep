@@ -659,6 +659,60 @@ fn map_file_stdin_twice_exit_10() {
     assert_eq!(res.code, 10);
 }
 
+// apply --last applies the most recent plan (the one the state pointer names)
+#[test]
+fn apply_last_applies_latest_plan() {
+    let dir = setup_success_example();
+    let _first = plan_three_maps(dir.path(), &[]);
+    let second = plan_three_maps(dir.path(), &[]);
+    let res = rep(dir.path(), &["apply", "--last", "--json"]);
+    assert_eq!(res.code, 0, "apply failed: {}", res.stdout);
+    assert_eq!(res.json()["plan_id"].as_str().unwrap(), second);
+}
+
+// --plan and --last are mutually exclusive
+#[test]
+fn apply_plan_and_last_conflict_exit_10() {
+    let dir = setup_success_example();
+    let plan_id = plan_three_maps(dir.path(), &[]);
+    let res = rep(
+        dir.path(),
+        &["apply", "--plan", &plan_id, "--last", "--json"],
+    );
+    assert_eq!(res.code, 10);
+}
+
+// apply --last with no plans yet is a usage error pointing at rep plan
+#[test]
+fn apply_last_without_plans_exit_10() {
+    let dir = setup_success_example();
+    let res = rep(dir.path(), &["apply", "--last", "--json"]);
+    assert_eq!(res.code, 10);
+    let msg = res.json()["error"]["message"].as_str().unwrap().to_string();
+    assert!(msg.contains("rep plan"), "message: {msg}");
+}
+
+// residual --last derives tokens from the most recent plan
+#[test]
+fn residual_last_checks_latest_plan_tokens() {
+    let dir = setup_success_example();
+    plan_three_maps(dir.path(), &["--rename-paths"]);
+    let res = rep(dir.path(), &["apply", "--last", "--json"]);
+    assert_eq!(res.code, 0, "apply failed: {}", res.stdout);
+    let res = rep(dir.path(), &["residual", "--last", "--json"]);
+    assert_eq!(res.code, 0, "residual failed: {}", res.stdout);
+    assert_eq!(res.json()["tokens"].as_array().unwrap().len(), 3);
+}
+
+// a positional token conflicts with --last
+#[test]
+fn residual_token_with_last_exit_10() {
+    let dir = setup_success_example();
+    plan_three_maps(dir.path(), &[]);
+    let res = rep(dir.path(), &["residual", "oldname", "--last", "--json"]);
+    assert_eq!(res.code, 10);
+}
+
 // matched_directories reports the token-bearing directory prefix
 #[test]
 fn matched_directory_prefix() {

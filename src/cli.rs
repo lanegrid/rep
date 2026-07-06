@@ -133,14 +133,22 @@ You describe the rename as one or more literal mappings with --map FROM=TO \
     #[command(long_about = "\
 Apply a previously previewed plan to the working tree.
 
-<PLAN> is the <plan-id> printed by 'rep plan'. apply refuses to run if tracked \
-files changed since the plan was built, so the preview always matches what gets \
-written.")]
-    #[command(after_help = "Example:\n  rep apply --plan <plan-id>")]
+<PLAN> is the <plan-id> printed by 'rep plan'; '--last' applies the most \
+recent plan (the one 'rep status' shows) without copying the id. apply \
+refuses to run if tracked files changed since the plan was built, so the \
+preview always matches what gets written.")]
+    #[command(
+        after_help = "Example:\n  rep apply --plan <plan-id>\n  rep apply --last               # the plan `rep status` shows"
+    )]
+    #[command(group = clap::ArgGroup::new("plan_ref").required(true).args(["plan", "last"]))]
     Apply {
         /// The <plan-id> printed by `rep plan`
         #[arg(long)]
-        plan: String,
+        plan: Option<String>,
+
+        /// Apply the most recent plan (the one `rep status` shows)
+        #[arg(long)]
+        last: bool,
     },
 
     /// Confirm an old token is gone (leftover check after applying)
@@ -148,16 +156,23 @@ written.")]
 Confirm an old token is gone -- a leftover check you run after applying.
 
 'residual' is any remaining occurrence of the old token in tracked content or \
-paths. Pass the token directly, or use --plan to derive the tokens from a \
-plan's FROM sides. Exits non-zero (code 8) if anything is left.")]
-    #[command(after_help = "Example:\n  rep residual old_name\n  rep residual --plan <plan-id>")]
+paths. Pass the token directly, or use --plan (or --last for the most recent \
+plan) to derive the tokens from a plan's FROM sides. Exits non-zero (code 8) \
+if anything is left.")]
+    #[command(
+        after_help = "Example:\n  rep residual old_name\n  rep residual --plan <plan-id>\n  rep residual --last"
+    )]
     Residual {
-        /// The token to check is gone (omit when using --plan)
+        /// The token to check is gone (omit when using --plan/--last)
         token: Option<String>,
 
         /// Derive tokens to check from a plan's mapping FROM sides
         #[arg(long)]
         plan: Option<String>,
+
+        /// Derive tokens from the most recent plan (the one `rep status` shows)
+        #[arg(long, conflicts_with_all = ["plan", "token"])]
+        last: bool,
 
         /// Match case-insensitively (ASCII)
         #[arg(long)]

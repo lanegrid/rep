@@ -85,7 +85,7 @@ fn suggested_command() -> &'static str {
     match sub.as_deref() {
         Some("scan") => "rep scan old_name",
         Some("plan") => "rep plan --map old_name=new_name",
-        Some("apply") => "rep apply --plan <plan-id>",
+        Some("apply") => "rep apply --last",
         Some("residual") => "rep residual old_name",
         Some("status") => "rep status",
         _ => "rep scan old_name        (list every command with 'rep --help')",
@@ -170,11 +170,14 @@ fn dispatch(cli: Cli) -> Result<i32> {
             )
         }
 
-        Commands::Apply { plan } => applier::run(plan, json),
+        // The clap ArgGroup guarantees exactly one of --plan/--last, so
+        // `plan: None` here always means `--last`.
+        Commands::Apply { plan, last: _ } => applier::run(plan, json),
 
         Commands::Residual {
             token,
             plan,
+            last,
             case_insensitive,
             include,
             exclude,
@@ -183,6 +186,7 @@ fn dispatch(cli: Cli) -> Result<i32> {
             ResidualOpts {
                 token,
                 plan,
+                last,
                 case_insensitive,
                 scope: ScopeOpts {
                     include,
