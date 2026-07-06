@@ -43,6 +43,9 @@ struct ResidualReport {
 pub struct ResidualOpts {
     pub token: Option<String>,
     pub plan: Option<String>,
+    /// Derive tokens from the most recent plan (state pointer) instead of an
+    /// explicit `--plan` id or positional token.
+    pub last: bool,
     pub case_insensitive: bool,
     pub scope: ScopeOpts,
 }
@@ -113,17 +116,22 @@ pub fn run(opts: ResidualOpts, json: bool) -> Result<i32> {
     Ok(if passed { 0 } else { 8 })
 }
 
-/// Resolve the tokens to check: each mapping `from` for `--plan`, otherwise the
-/// single positional token.
+/// Resolve the tokens to check: each mapping `from` for `--plan`/`--last`,
+/// otherwise the single positional token.
 fn resolve_tokens(root: &std::path::Path, opts: &ResidualOpts) -> Result<Vec<String>> {
-    if let Some(plan_id) = &opts.plan {
+    let plan_id = if opts.last {
+        Some(artifacts::last_plan_id(root)?)
+    } else {
+        opts.plan.clone()
+    };
+    if let Some(plan_id) = &plan_id {
         let plan = artifacts::read_plan(root, plan_id)?;
         Ok(plan.mappings.into_iter().map(|m| m.from).collect())
     } else if let Some(token) = &opts.token {
         Ok(vec![token.clone()])
     } else {
         Err(RepError::InvalidArguments(
-            "either a TOKEN or --plan PLAN_ID is required".to_string(),
+            "either a TOKEN, --plan PLAN_ID, or --last is required".to_string(),
         ))
     }
 }

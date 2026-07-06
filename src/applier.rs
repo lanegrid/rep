@@ -48,9 +48,14 @@ struct ApplyOutput {
     next: Vec<NextStep>,
 }
 
-/// Execute `rep apply`.
-pub fn run(plan_id: String, json: bool) -> Result<i32> {
+/// Execute `rep apply`. `plan_id: None` means `--last`: the most recent plan,
+/// resolved from the state pointer.
+pub fn run(plan_id: Option<String>, json: bool) -> Result<i32> {
     let root = git::discover_root()?;
+    let plan_id = match plan_id {
+        Some(id) => id,
+        None => artifacts::last_plan_id(&root)?,
+    };
     let mut plan = artifacts::read_plan(&root, &plan_id)?;
 
     // --- validation (all before any write) ---
