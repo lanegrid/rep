@@ -41,6 +41,29 @@ impl RunResult {
     }
 }
 
+fn rep_with_stdin(dir: &Path, args: &[&str], stdin: &str) -> RunResult {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new(rep_bin())
+        .args(args)
+        .current_dir(dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("failed to run rep");
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().expect("failed to run rep");
+    RunResult {
+        code: out.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+    }
+}
+
 fn rep(dir: &Path, args: &[&str]) -> RunResult {
     let out = Command::new(rep_bin())
         .args(args)
@@ -503,6 +526,137 @@ fn exclude_rep_allowed() {
         &["scan", "oldname", "--exclude", ".rep/**", "--json"],
     );
     assert_eq!(res.code, 0);
+}
+
+// --map-file alone drives a full plan/apply; comments and blank lines skipped
+#[test]
+fn map_file_plans_and_applies() {
+    let dir = setup_success_example();
+    write(
+        dir.path(),
+        "maps.txt",
+        "# casing variants\noldname=newname\n\nOldName=NewName\nOLDNAME=NEWNAME\n",
+    );
+    git(dir.path(), &["add", "maps.txt"]);
+    git(dir.path(), &["commit", "-q", "-m", "maps"]);
+    let res = rep(
+        dir.path(),
+        &[
+            "plan",
+            "--map-file",
+            "maps.txt",
+            "--exclude",
+            "maps.txt",
+            "--json",
+        ],
+    );
+    assert_eq!(res.code, 0, "plan failed: {}", res.stdout);
+    let plan_id = res.json()["plan_id"].as_str().unwrap().to_string();
+    let res = rep(dir.path(), &["apply", "--plan", &plan_id, "--json"]);
+    assert_eq!(res.code, 0, "apply failed: {}", res.stdout);
+    let content = read(dir.path(), "src/oldname.ts");
+    assert!(content.contains("newname"));
+    assert!(content.contains("NEWNAME"));
+}
+
+// --map and --map-file combine; plan.json records maps first, file entries after
+#[test]
+fn map_and_map_file_combine_in_plan_json() {
+    let dir = setup_success_example();
+    write(dir.path(), "maps.txt", "OldName=NewName\nOLDNAME=NEWNAME\n");
+    let res = rep(
+        dir.path(),
+        &[
+            "plan",
+            "--map",
+            "oldname=newname",
+            "--map-file",
+            "maps.txt",
+            "--json",
+        ],
+    );
+    assert_eq!(res.code, 0, "plan failed: {}", res.stdout);
+    let plan_id = res.json()["plan_id"].as_str().unwrap().to_string();
+    let plan: Value = serde_json::from_str(&read(
+        dir.path(),
+        &format!(".rep/plans/{plan_id}/plan.json"),
+    ))
+    .unwrap();
+    let froms: Vec<&str> = plan["mappings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["from"].as_str().unwrap())
+        .collect();
+    assert_eq!(froms, vec!["oldname", "OldName", "OLDNAME"]);
+}
+
+// an invalid map-file line is a usage error naming the file and line
+#[test]
+fn map_file_invalid_line_exit_10() {
+    let dir = setup_success_example();
+    write(dir.path(), "maps.txt", "oldname=newname\nnoequals\n");
+    let res = rep(dir.path(), &["plan", "--map-file", "maps.txt", "--json"]);
+    assert_eq!(res.code, 10);
+    let msg = res.json()["error"]["message"].as_str().unwrap().to_string();
+    assert!(msg.contains("maps.txt"), "message: {msg}");
+    assert!(msg.contains("line 2"), "message: {msg}");
+}
+
+// duplicate FROM between --map and --map-file hits the usual validation
+#[test]
+fn map_file_duplicate_from_exit_10() {
+    let dir = setup_success_example();
+    write(dir.path(), "maps.txt", "oldname=other\n");
+    let res = rep(
+        dir.path(),
+        &[
+            "plan",
+            "--map",
+            "oldname=newname",
+            "--map-file",
+            "maps.txt",
+            "--json",
+        ],
+    );
+    assert_eq!(res.code, 10);
+    let msg = res.json()["error"]["message"].as_str().unwrap().to_string();
+    assert!(msg.contains("duplicate mapping FROM"), "message: {msg}");
+}
+
+// a missing map file is a usage error (exit 10), not a generic IO failure
+#[test]
+fn map_file_missing_exit_10() {
+    let dir = setup_success_example();
+    let res = rep(dir.path(), &["plan", "--map-file", "nope.txt", "--json"]);
+    assert_eq!(res.code, 10);
+    let msg = res.json()["error"]["message"].as_str().unwrap().to_string();
+    assert!(msg.contains("nope.txt"), "message: {msg}");
+}
+
+// --map-file - reads mappings from stdin
+#[test]
+fn map_file_stdin() {
+    let dir = setup_success_example();
+    let res = rep_with_stdin(
+        dir.path(),
+        &["plan", "--map-file", "-", "--json"],
+        "oldname=newname\nOldName=NewName\nOLDNAME=NEWNAME\n",
+    );
+    assert_eq!(res.code, 0, "plan failed: {}", res.stdout);
+    assert_eq!(res.json()["content"]["replacements"].as_i64().unwrap(), 3);
+}
+
+// stdin may back at most one --map-file
+#[test]
+fn map_file_stdin_twice_exit_10() {
+    let dir = setup_success_example();
+    let res = rep_with_stdin(
+        dir.path(),
+        &["plan", "--map-file", "-", "--map-file", "-", "--json"],
+        "oldname=newname\n",
+    );
+    assert_eq!(res.code, 10);
 }
 
 // matched_directories reports the token-bearing directory prefix

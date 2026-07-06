@@ -92,6 +92,35 @@ fn suggested_command() -> &'static str {
     }
 }
 
+/// Read every `--map-file` argument into mappings, in flag order.
+///
+/// `-` (stdin) is allowed at most once so it is unambiguous which mappings
+/// came from the pipe. Read failures are usage errors (exit 10), not generic
+/// IO errors, because a missing map file is a mistyped argument.
+fn read_map_files(paths: &[String]) -> Result<Vec<text::Mapping>> {
+    if paths.iter().filter(|p| p.as_str() == "-").count() > 1 {
+        return Err(RepError::InvalidArguments(
+            "--map-file '-' (stdin) may be given at most once".to_string(),
+        ));
+    }
+    let mut maps = Vec::new();
+    for path in paths {
+        let (source, content) = if path == "-" {
+            let content = std::io::read_to_string(std::io::stdin()).map_err(|e| {
+                RepError::InvalidArguments(format!("cannot read --map-file '-' (stdin): {e}"))
+            })?;
+            ("stdin".to_string(), content)
+        } else {
+            let content = std::fs::read_to_string(path).map_err(|e| {
+                RepError::InvalidArguments(format!("cannot read --map-file '{path}': {e}"))
+            })?;
+            (path.clone(), content)
+        };
+        maps.extend(text::parse_map_file(&source, &content)?);
+    }
+    Ok(maps)
+}
+
 fn dispatch(cli: Cli) -> Result<i32> {
     let json = cli.json;
     match cli.command {
@@ -114,16 +143,18 @@ fn dispatch(cli: Cli) -> Result<i32> {
 
         Commands::Plan {
             map,
+            map_file,
             no_content,
             rename_paths,
             include,
             exclude,
             tracked_only: _,
         } => {
-            let maps = map
+            let mut maps = map
                 .iter()
                 .map(|s| text::parse_mapping(s))
                 .collect::<Result<Vec<_>>>()?;
+            maps.extend(read_map_files(&map_file)?);
             planner::run(
                 PlanOpts {
                     maps,

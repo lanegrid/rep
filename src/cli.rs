@@ -22,8 +22,9 @@ EXAMPLE  (rename old_name -> new_name across the repo):
   rep residual old_name              # confirm the old name is gone
 
 CONCEPTS:
-  mapping     a literal FROM=TO pair, passed with --map. No regex and no
-              automatic case handling -- map each casing explicitly
+  mapping     a literal FROM=TO pair, passed with --map (or one per line in a
+              file via --map-file). No regex and no automatic case handling --
+              map each casing explicitly
               (e.g. --map OldName=NewName --map OLDNAME=NEWNAME).
   plan        a previewed, saved set of edits, identified by a <plan-id>.
   residual    leftover occurrences of the old token after applying.
@@ -91,15 +92,21 @@ token occurs and in which files, so you can decide what to rename.")]
 Preview a rename and save it as a plan. This does NOT change any files.
 
 You describe the rename as one or more literal mappings with --map FROM=TO \
-(no regex; map each casing explicitly). rep computes every edit and prints a \
-<plan-id>; pass that id to 'rep apply' to perform the change.")]
+(no regex; map each casing explicitly), or list many in a file passed with \
+--map-file. rep computes every edit and prints a <plan-id>; pass that id to \
+'rep apply' to perform the change.")]
     #[command(
-        after_help = "Example:\n  rep plan --map old_name=new_name --map OldName=NewName\n  # prints a <plan-id> -> next: rep apply --plan <plan-id>"
+        after_help = "Example:\n  rep plan --map old_name=new_name --map OldName=NewName\n  rep plan --map-file mappings.txt   # one FROM=TO per line; '-' reads stdin\n  # prints a <plan-id> -> next: rep apply --plan <plan-id>"
     )]
     Plan {
         /// A literal mapping FROM=TO, e.g. old_name=new_name (repeatable)
         #[arg(long = "map", value_name = "FROM=TO")]
         map: Vec<String>,
+
+        /// Read mappings from a file, one FROM=TO per line; blank lines and
+        /// '#' comments are skipped; '-' reads stdin (repeatable)
+        #[arg(long = "map-file", value_name = "PATH")]
+        map_file: Vec<String>,
 
         /// Disable content replacement (enabled by default)
         #[arg(long = "no-content")]
