@@ -12,6 +12,8 @@ pub const APPLY: &str = "rep.apply.v1";
 pub const RESIDUAL: &str = "rep.residual.v1";
 /// `rep status` output schema version.
 pub const STATUS: &str = "rep.status.v1";
+/// `rep show` output schema version.
+pub const SHOW: &str = "rep.show.v1";
 /// Machine-readable error output schema version (emitted on `--json` failures).
 pub const ERROR: &str = "rep.error.v1";
 
