@@ -55,8 +55,9 @@ pub struct PlanOpts {
 }
 
 /// Execute `rep plan`.
-pub fn run(opts: PlanOpts, json: bool) -> Result<i32> {
+pub fn run(mut opts: PlanOpts, json: bool) -> Result<i32> {
     let root = git::discover_root()?;
+    opts.scope = scope::resolve(&root, opts.scope)?;
     scope::reject_rep_dir(&opts.scope)?;
 
     // `--from-git-renames` alone may legitimately derive nothing (no staged

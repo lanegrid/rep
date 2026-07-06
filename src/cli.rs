@@ -28,6 +28,8 @@ CONCEPTS:
               (e.g. --map OldName=NewName --map OLDNAME=NEWNAME).
   plan        a previewed, saved set of edits, identified by a <plan-id>.
   residual    leftover occurrences of the old token after applying.
+  rep.toml    optional checked-in scope defaults at the repo root ([scope]
+              include/exclude globs) for scan/plan/residual; --no-config skips.
 
 Exit codes are stable for scripts and agents (0 success, 2 no matches,
 8 residual found, ...). Run 'rep <command> --help' for per-command detail.";
@@ -81,6 +83,10 @@ token occurs and in which files, so you can decide what to rename.")]
         /// Skip paths matching these globs (repeatable)
         #[arg(long)]
         exclude: Vec<String>,
+
+        /// Ignore rep.toml scope defaults for this run
+        #[arg(long = "no-config")]
+        no_config: bool,
 
         /// Restrict to git-tracked files (always on in the minimal version)
         #[arg(long)]
@@ -144,6 +150,10 @@ the renames, then re-plan from the recorded mappings and apply."
         #[arg(long)]
         exclude: Vec<String>,
 
+        /// Ignore rep.toml scope defaults for this run
+        #[arg(long = "no-config")]
+        no_config: bool,
+
         /// Restrict to git-tracked files (always on in the minimal version)
         #[arg(long)]
         tracked_only: bool,
@@ -205,6 +215,10 @@ if anything is left.")]
         /// Skip paths matching these globs (repeatable)
         #[arg(long)]
         exclude: Vec<String>,
+
+        /// Ignore rep.toml scope defaults for this run
+        #[arg(long = "no-config")]
+        no_config: bool,
 
         /// Restrict to git-tracked files (always on in the minimal version)
         #[arg(long)]
