@@ -13,11 +13,20 @@ use crate::schema;
 use crate::{git, text};
 
 /// User-provided scope options shared by scan / plan / residual.
+///
+/// The `config_*` fields are populated from `rep.toml` by [`resolve`] and kept
+/// separate from the CLI vectors so a skipped path can be attributed to the
+/// flag or the config file that excluded it.
 #[derive(Clone, Debug, Default)]
 pub struct ScopeOpts {
     pub include: Vec<String>,
     pub exclude: Vec<String>,
     pub tracked_only: bool,
+    /// Skip loading `rep.toml` for this run (`--no-config`).
+    pub no_config: bool,
+    pub config_path: Option<String>,
+    pub config_include: Vec<String>,
+    pub config_exclude: Vec<String>,
 }
 
 /// Serialized scope description embedded in JSON output and plan artifacts.
@@ -27,6 +36,14 @@ pub struct Scope {
     pub include: Vec<String>,
     pub exclude: Vec<String>,
     pub default_exclude: Vec<String>,
+    /// The config file the `config_*` globs came from; absent when no
+    /// `rep.toml` exists or `--no-config` was given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub config_include: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub config_exclude: Vec<String>,
 }
 
 impl Scope {
@@ -37,8 +54,26 @@ impl Scope {
             include: opts.include.clone(),
             exclude: opts.exclude.clone(),
             default_exclude: vec![schema::DEFAULT_EXCLUDE.to_string()],
+            config_path: opts.config_path.clone(),
+            config_include: opts.config_include.clone(),
+            config_exclude: opts.config_exclude.clone(),
         }
     }
+}
+
+/// Fold `rep.toml` scope defaults (unless `--no-config`) into freshly parsed
+/// CLI options. Runs after root discovery because only the repository root
+/// knows where the config lives.
+pub fn resolve(root: &Path, mut opts: ScopeOpts) -> Result<ScopeOpts> {
+    if opts.no_config {
+        return Ok(opts);
+    }
+    if let Some(config) = crate::config::load(root)? {
+        opts.config_path = Some(crate::config::CONFIG_FILE.to_string());
+        opts.config_include = config.scope.include;
+        opts.config_exclude = config.scope.exclude;
+    }
+    Ok(opts)
 }
 
 /// A skipped path together with a machine-readable reason.
@@ -73,10 +108,21 @@ pub struct Gathered {
 /// Excluding `.rep/` is harmless (it is always excluded anyway), so only
 /// `--include` is rejected.
 pub fn reject_rep_dir(opts: &ScopeOpts) -> Result<()> {
+    let targets_rep =
+        |g: &str| g == schema::REP_DIR || g.starts_with(".rep/") || g.starts_with(".rep\\");
     for g in opts.include.iter() {
-        if g == schema::REP_DIR || g.starts_with(".rep/") || g.starts_with(".rep\\") {
+        if targets_rep(g) {
             return Err(RepError::InvalidArguments(format!(
                 "--include '{g}' targets the reserved {} directory, which is always excluded",
+                schema::REP_DIR
+            )));
+        }
+    }
+    for g in opts.config_include.iter() {
+        if targets_rep(g) {
+            return Err(RepError::InvalidArguments(format!(
+                "{} include '{g}' targets the reserved {} directory, which is always excluded",
+                crate::config::CONFIG_FILE,
                 schema::REP_DIR
             )));
         }
@@ -126,14 +172,29 @@ pub fn gather(root: &Path, opts: &ScopeOpts) -> Result<Gathered> {
             });
             continue;
         }
-        // When --include is given, a path must match at least one include glob.
-        if !opts.include.is_empty() && !globset::any_match(&opts.include, &path) {
+        // When any include is given (CLI or config), a path must match at
+        // least one glob from their union.
+        let has_includes = !opts.include.is_empty() || !opts.config_include.is_empty();
+        if has_includes
+            && !globset::any_match(&opts.include, &path)
+            && !globset::any_match(&opts.config_include, &path)
+        {
             continue;
         }
+        // CLI excludes are checked before config excludes so a rule present in
+        // both is attributed to the explicit flag.
         if let Some(rule) = globset::first_match(&opts.exclude, &path) {
             skipped.push(Skip {
                 path,
                 reason: "excluded_by_glob".to_string(),
+                matched_rule: Some(rule.to_string()),
+            });
+            continue;
+        }
+        if let Some(rule) = globset::first_match(&opts.config_exclude, &path) {
+            skipped.push(Skip {
+                path,
+                reason: "excluded_by_config".to_string(),
                 matched_rule: Some(rule.to_string()),
             });
             continue;

@@ -968,6 +968,154 @@ fn show_includes_derived_block() {
     assert_eq!(res.json()["derived"]["mappings"][0]["from"], "oldname");
 }
 
+// rep.toml excludes apply with the excluded_by_config reason and are named
+// in the reported scope
+#[test]
+fn config_exclude_applies_with_config_reason() {
+    let dir = setup_success_example();
+    write(
+        dir.path(),
+        "rep.toml",
+        "[scope]\nexclude = [\"README.md\"]\n",
+    );
+    let res = rep(dir.path(), &["scan", "oldname", "--json"]);
+    assert_eq!(res.code, 0, "scan failed: {}", res.stdout);
+    let json = res.json();
+    assert_eq!(json["scope"]["config_path"], "rep.toml");
+    let skipped = json["skipped"].as_array().unwrap();
+    assert!(
+        skipped.iter().any(|s| s["path"] == "README.md"
+            && s["reason"] == "excluded_by_config"
+            && s["matched_rule"] == "README.md"),
+        "skipped: {skipped:?}"
+    );
+}
+
+// config excludes narrow plan; --no-config restores the full scope
+#[test]
+fn config_exclude_affects_plan_and_no_config_restores() {
+    let dir = setup_success_example();
+    write(dir.path(), "rep.toml", "[scope]\nexclude = [\"src/**\"]\n");
+    let res = rep(dir.path(), &["plan", "--map", "oldname=newname", "--json"]);
+    assert_eq!(res.code, 2, "all matches excluded: {}", res.stdout);
+    let res = rep(
+        dir.path(),
+        &["plan", "--map", "oldname=newname", "--no-config", "--json"],
+    );
+    assert_eq!(res.code, 0, "plan failed: {}", res.stdout);
+    let plan_id = res.json()["plan_id"].as_str().unwrap().to_string();
+    let plan: Value = serde_json::from_str(&read(
+        dir.path(),
+        &format!(".rep/plans/{plan_id}/plan.json"),
+    ))
+    .unwrap();
+    assert!(
+        plan["scope"].get("config_path").is_none(),
+        "scope: {}",
+        plan["scope"]
+    );
+}
+
+// CLI and config excludes combine, each attributed to its source
+#[test]
+fn cli_and_config_excludes_combine() {
+    let dir = setup_success_example();
+    write(
+        dir.path(),
+        "rep.toml",
+        "[scope]\nexclude = [\"README.md\"]\n",
+    );
+    let res = rep(
+        dir.path(),
+        &["scan", "oldname", "--exclude", "src/**", "--json"],
+    );
+    assert_eq!(res.code, 2, "everything excluded means no matches");
+    let json = res.json();
+    let skipped = json["skipped"].as_array().unwrap();
+    assert!(
+        skipped
+            .iter()
+            .any(|s| s["path"] == "src/oldname.ts" && s["reason"] == "excluded_by_glob")
+    );
+    assert!(
+        skipped
+            .iter()
+            .any(|s| s["path"] == "README.md" && s["reason"] == "excluded_by_config")
+    );
+}
+
+// a broken or typo'd rep.toml is a usage error, never a silently wider scope
+#[test]
+fn invalid_config_exit_10() {
+    let dir = setup_success_example();
+    write(dir.path(), "rep.toml", "[scope\n");
+    let res = rep(dir.path(), &["scan", "oldname", "--json"]);
+    assert_eq!(res.code, 10);
+    write(dir.path(), "rep.toml", "[scope]\nexlude = [\"x\"]\n");
+    let res = rep(dir.path(), &["scan", "oldname", "--json"]);
+    assert_eq!(res.code, 10);
+    let msg = res.json()["error"]["message"].as_str().unwrap().to_string();
+    assert!(msg.contains("rep.toml"), "message: {msg}");
+}
+
+// a config include may not target the reserved .rep directory
+#[test]
+fn config_include_rep_rejected_exit_10() {
+    let dir = setup_success_example();
+    write(dir.path(), "rep.toml", "[scope]\ninclude = [\".rep/**\"]\n");
+    let res = rep(dir.path(), &["scan", "oldname", "--json"]);
+    assert_eq!(res.code, 10);
+    let msg = res.json()["error"]["message"].as_str().unwrap().to_string();
+    assert!(msg.contains("rep.toml"), "message: {msg}");
+}
+
+// config and CLI includes union: a path may match either
+#[test]
+fn config_and_cli_includes_union() {
+    let dir = init_repo();
+    write(dir.path(), "src/a.ts", "oldname\n");
+    write(dir.path(), "docs/b.md", "oldname\n");
+    write(dir.path(), "other/c.txt", "oldname\n");
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "init"]);
+    write(dir.path(), "rep.toml", "[scope]\ninclude = [\"src/**\"]\n");
+    let res = rep(
+        dir.path(),
+        &["scan", "oldname", "--include", "docs/**", "--json"],
+    );
+    assert_eq!(res.code, 0, "scan failed: {}", res.stdout);
+    assert_eq!(res.json()["content"]["matched_files"].as_u64().unwrap(), 2);
+}
+
+// residual honors config excludes like scan and plan do
+#[test]
+fn residual_respects_config_exclude() {
+    let dir = setup_success_example();
+    write(dir.path(), "rep.toml", "[scope]\nexclude = [\"src/**\"]\n");
+    let res = rep(dir.path(), &["residual", "oldname", "--json"]);
+    assert_eq!(res.code, 0, "residual should pass: {}", res.stdout);
+    let res = rep(
+        dir.path(),
+        &["residual", "oldname", "--no-config", "--json"],
+    );
+    assert_eq!(res.code, 8, "without config the token is present");
+}
+
+// rep show surfaces the config source recorded in the plan's scope
+#[test]
+fn show_scope_includes_config() {
+    let dir = setup_success_example();
+    write(
+        dir.path(),
+        "rep.toml",
+        "[scope]\nexclude = [\"README.md\"]\n",
+    );
+    plan_three_maps(dir.path(), &[]);
+    let res = rep(dir.path(), &["show", "--json"]);
+    assert_eq!(res.code, 0, "show failed: {}", res.stdout);
+    assert_eq!(res.json()["scope"]["config_path"], "rep.toml");
+}
+
 // matched_directories reports the token-bearing directory prefix
 #[test]
 fn matched_directory_prefix() {

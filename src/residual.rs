@@ -51,8 +51,9 @@ pub struct ResidualOpts {
 }
 
 /// Execute `rep residual`.
-pub fn run(opts: ResidualOpts, json: bool) -> Result<i32> {
+pub fn run(mut opts: ResidualOpts, json: bool) -> Result<i32> {
     let root = git::discover_root()?;
+    opts.scope = scope::resolve(&root, opts.scope)?;
     scope::reject_rep_dir(&opts.scope)?;
 
     let tokens = resolve_tokens(&root, &opts)?;

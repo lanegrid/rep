@@ -41,6 +41,7 @@ struct ScanReport {
 /// Execute `rep scan`.
 pub fn run(token: String, case_insensitive: bool, opts: ScopeOpts, json: bool) -> Result<i32> {
     let root = git::discover_root()?;
+    let opts = scope::resolve(&root, opts)?;
     scope::reject_rep_dir(&opts)?;
     let gathered = scope::gather(&root, &opts)?;
 

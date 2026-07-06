@@ -132,6 +132,7 @@ fn dispatch(cli: Cli) -> Result<i32> {
             case_insensitive,
             include,
             exclude,
+            no_config,
             tracked_only: _,
         } => scanner::run(
             token,
@@ -140,6 +141,8 @@ fn dispatch(cli: Cli) -> Result<i32> {
                 include,
                 exclude,
                 tracked_only: true,
+                no_config,
+                ..Default::default()
             },
             json,
         ),
@@ -152,6 +155,7 @@ fn dispatch(cli: Cli) -> Result<i32> {
             rename_paths,
             include,
             exclude,
+            no_config,
             tracked_only: _,
         } => {
             let mut maps = map
@@ -182,6 +186,8 @@ fn dispatch(cli: Cli) -> Result<i32> {
                         include,
                         exclude,
                         tracked_only: true,
+                        no_config,
+                        ..Default::default()
                     },
                 },
                 json,
@@ -199,6 +205,7 @@ fn dispatch(cli: Cli) -> Result<i32> {
             case_insensitive,
             include,
             exclude,
+            no_config,
             tracked_only: _,
         } => residual::run(
             ResidualOpts {
@@ -210,6 +217,8 @@ fn dispatch(cli: Cli) -> Result<i32> {
                     include,
                     exclude,
                     tracked_only: true,
+                    no_config,
+                    ..Default::default()
                 },
             },
             json,
