@@ -34,6 +34,28 @@ pub fn parse_mapping(spec: &str) -> Result<Mapping> {
     })
 }
 
+/// Parse the contents of a `--map-file`: one `FROM=TO` mapping per line.
+///
+/// Blank lines and lines starting with `#` are skipped. `source` names the
+/// input (a file path, or "stdin") so errors point at the offending line.
+pub fn parse_map_file(source: &str, content: &str) -> Result<Vec<Mapping>> {
+    let mut maps = Vec::new();
+    for (idx, raw) in content.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mapping = parse_mapping(line).map_err(|_| {
+            RepError::InvalidArguments(format!(
+                "invalid mapping in map file '{source}' line {line_no}: '{line}' (expected FROM=TO)",
+                line_no = idx + 1
+            ))
+        })?;
+        maps.push(mapping);
+    }
+    Ok(maps)
+}
+
 /// Validate that a set of mappings can be applied unambiguously.
 ///
 /// Fails when mappings are duplicated or interfere with one another (e.g.
@@ -42,7 +64,7 @@ pub fn parse_mapping(spec: &str) -> Result<Mapping> {
 pub fn validate_mappings(maps: &[Mapping]) -> Result<()> {
     if maps.is_empty() {
         return Err(RepError::InvalidArguments(
-            "at least one --map FROM=TO is required".to_string(),
+            "at least one mapping is required (--map FROM=TO or --map-file PATH)".to_string(),
         ));
     }
     for (i, a) in maps.iter().enumerate() {
@@ -158,6 +180,21 @@ mod tests {
     fn parse_rejects_empty_from() {
         assert!(parse_mapping("=bar").is_err());
         assert!(parse_mapping("noequals").is_err());
+    }
+
+    #[test]
+    fn map_file_skips_blanks_and_comments() {
+        let content = "\n# casing variants\noldname=newname\n\n  OldName=NewName  \n";
+        let maps = parse_map_file("maps.txt", content).unwrap();
+        assert_eq!(maps, vec![m("oldname", "newname"), m("OldName", "NewName")]);
+    }
+
+    #[test]
+    fn map_file_error_names_source_and_line() {
+        let err = parse_map_file("maps.txt", "oldname=newname\nnoequals\n").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("maps.txt"), "message: {msg}");
+        assert!(msg.contains("line 2"), "message: {msg}");
     }
 
     #[test]
