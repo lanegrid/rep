@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{RepError, Result};
 use crate::path_rename::Rename;
+use crate::rename_derive::Underivable;
 use crate::scope::{Scope, Skip};
 use crate::text::Mapping;
 
@@ -59,6 +60,15 @@ pub struct Artifacts {
     pub skipped: String,
 }
 
+/// Mappings derived from staged git renames, plus the renames no mapping
+/// could be derived from (recorded so they are never silently dropped).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DerivedInfo {
+    pub from_git_renames: bool,
+    pub mappings: Vec<Mapping>,
+    pub underivable: Vec<Underivable>,
+}
+
 /// The source of truth for a planned change.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Plan {
@@ -69,6 +79,10 @@ pub struct Plan {
     pub repo: RepoInfo,
     pub scope: Scope,
     pub mappings: Vec<Mapping>,
+    /// Present when `--from-git-renames` contributed mappings. Optional and
+    /// defaulted so plan.json files written before this field deserialize.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived: Option<DerivedInfo>,
     pub content: ContentPlan,
     pub paths: PathsPlan,
     pub skipped: Vec<Skip>,

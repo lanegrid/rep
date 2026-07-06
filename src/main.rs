@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use clap::error::ErrorKind;
 
+use rep::artifacts::DerivedInfo;
 use rep::cli::{Cli, Commands};
 use rep::error::{RepError, Result};
 use rep::planner::PlanOpts;
@@ -12,7 +13,7 @@ use rep::residual::ResidualOpts;
 use rep::scope::ScopeOpts;
 use rep::show::ShowOpts;
 use rep::text;
-use rep::{applier, output, planner, residual, scanner, show, status};
+use rep::{applier, git, output, planner, rename_derive, residual, scanner, show, status};
 
 fn main() -> ExitCode {
     let cli = match Cli::try_parse() {
@@ -146,6 +147,7 @@ fn dispatch(cli: Cli) -> Result<i32> {
         Commands::Plan {
             map,
             map_file,
+            from_git_renames,
             no_content,
             rename_paths,
             include,
@@ -157,9 +159,23 @@ fn dispatch(cli: Cli) -> Result<i32> {
                 .map(|s| text::parse_mapping(s))
                 .collect::<Result<Vec<_>>>()?;
             maps.extend(read_map_files(&map_file)?);
+            let derived = if from_git_renames {
+                let root = git::discover_root()?;
+                let renames = git::staged_renames(&root)?;
+                let (derived_maps, underivable) = rename_derive::derive(&renames)?;
+                maps.extend(derived_maps.clone());
+                Some(DerivedInfo {
+                    from_git_renames: true,
+                    mappings: derived_maps,
+                    underivable,
+                })
+            } else {
+                None
+            };
             planner::run(
                 PlanOpts {
                     maps,
+                    derived,
                     content: !no_content,
                     rename_paths,
                     scope: ScopeOpts {

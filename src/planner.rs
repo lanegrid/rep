@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use crate::artifacts::{
-    self, Artifacts, ContentFile, ContentPlan, PathsPlan, Plan, RepoInfo, STATE_PLANNED, State,
-    Summary,
+    self, Artifacts, ContentFile, ContentPlan, DerivedInfo, PathsPlan, Plan, RepoInfo,
+    STATE_PLANNED, State, Summary,
 };
 use crate::error::Result;
 use crate::output;
@@ -21,6 +21,8 @@ struct PlanOutput {
     schema_version: String,
     plan_id: String,
     state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    derived: Option<DerivedInfo>,
     content: ContentSummary,
     paths: PathSummary,
     skipped: usize,
@@ -44,6 +46,9 @@ struct PathSummary {
 /// Options for `rep plan`.
 pub struct PlanOpts {
     pub maps: Vec<text::Mapping>,
+    /// Set when `--from-git-renames` ran: the derived mappings (already merged
+    /// into `maps`) and the staged renames nothing could be derived from.
+    pub derived: Option<DerivedInfo>,
     pub content: bool,
     pub rename_paths: bool,
     pub scope: ScopeOpts,
@@ -53,6 +58,13 @@ pub struct PlanOpts {
 pub fn run(opts: PlanOpts, json: bool) -> Result<i32> {
     let root = git::discover_root()?;
     scope::reject_rep_dir(&opts.scope)?;
+
+    // `--from-git-renames` alone may legitimately derive nothing (no staged
+    // renames, or only underivable ones). That is "no matches" (exit 2), not a
+    // usage error — and the underivable list must still reach the caller.
+    if opts.maps.is_empty() && opts.derived.is_some() {
+        return no_op(&opts, json);
+    }
     text::validate_mappings(&opts.maps)?;
 
     let git_head = git::head(&root)?;
@@ -100,18 +112,7 @@ pub fn run(opts: PlanOpts, json: bool) -> Result<i32> {
     // A plan that would change nothing is reported as "no matches" (exit 2) and
     // no artifacts are written, so agents don't mistake it for real work.
     if changed_files == 0 && renames.is_empty() {
-        if json {
-            output::print_json(&serde_json::json!({
-                "schema_version": schema::PLAN,
-                "state": "none",
-                "no_op": true,
-                "content": { "changed_files": 0, "replacements": 0 },
-                "paths": { "renames": 0 },
-            }))?;
-        } else {
-            output::warn("no changes to plan for the given mappings");
-        }
-        return Ok(2);
+        return no_op(&opts, json);
     }
 
     let plan_id = unique_plan_id(&root);
@@ -130,6 +131,7 @@ pub fn run(opts: PlanOpts, json: bool) -> Result<i32> {
         },
         scope: scope::Scope::from_opts(&opts.scope),
         mappings: opts.maps.clone(),
+        derived: opts.derived.clone(),
         content: ContentPlan {
             enabled: opts.content,
             matched_files: changed_files,
@@ -170,6 +172,7 @@ pub fn run(opts: PlanOpts, json: bool) -> Result<i32> {
         schema_version: schema::PLAN.to_string(),
         plan_id,
         state: STATE_PLANNED.to_string(),
+        derived: opts.derived,
         content: ContentSummary {
             matched_files: plan.content.matched_files,
             changed_files: plan.content.changed_files,
@@ -191,6 +194,43 @@ pub fn run(opts: PlanOpts, json: bool) -> Result<i32> {
     }
 
     Ok(0)
+}
+
+/// Report a plan that would change nothing: "no matches" (exit 2), no
+/// artifacts written. When `--from-git-renames` ran, the derived mappings and
+/// underivable renames are included so they are never silently dropped.
+fn no_op(opts: &PlanOpts, json: bool) -> Result<i32> {
+    if json {
+        let mut out = serde_json::json!({
+            "schema_version": schema::PLAN,
+            "state": "none",
+            "no_op": true,
+            "content": { "changed_files": 0, "replacements": 0 },
+            "paths": { "renames": 0 },
+        });
+        if let Some(derived) = &opts.derived {
+            out["derived"] = serde_json::to_value(derived)?;
+        }
+        output::print_json(&out)?;
+    } else {
+        match &opts.derived {
+            Some(derived) if opts.maps.is_empty() => {
+                output::warn("no mappings derivable from staged renames");
+                for u in &derived.underivable {
+                    println!("  {} -> {} ({})", u.from, u.to, u.reason);
+                }
+                if derived.underivable.is_empty() {
+                    output::action(
+                        "stage renames first (git mv OLD NEW), then re-run rep plan --from-git-renames",
+                    );
+                } else {
+                    output::action("describe these renames with explicit --map FROM=TO entries");
+                }
+            }
+            _ => output::warn("no changes to plan for the given mappings"),
+        }
+    }
+    Ok(2)
 }
 
 /// Generate a sortable, timestamp-based plan id, adding a numeric suffix if a
@@ -225,6 +265,15 @@ fn append_preview(preview: &mut String, path: &str, before: &str, after: &str) {
 
 fn print_human(out: &PlanOutput) {
     output::success(&format!("plan {}", output::bold(&out.plan_id)));
+    if let Some(derived) = &out.derived {
+        println!(
+            "  derived from staged git renames: {} mappings",
+            derived.mappings.len()
+        );
+        for u in &derived.underivable {
+            println!("    underivable: {} -> {} ({})", u.from, u.to, u.reason);
+        }
+    }
     println!(
         "  content replacements: {} ({} changed files)",
         out.content.replacements, out.content.changed_files

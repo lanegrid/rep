@@ -818,6 +818,156 @@ fn show_human_smoke() {
     assert!(res.stdout.contains("oldname -> newname"), "{}", res.stdout);
 }
 
+/// Repo with a token-bearing file plus a reference in README, for rename
+/// derivation tests.
+fn setup_rename_example() -> TempDir {
+    let dir = init_repo();
+    write(dir.path(), "src/oldname.ts", "export const x = 1\n");
+    write(dir.path(), "README.md", "see src/oldname.ts (oldname)\n");
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "init"]);
+    dir
+}
+
+// a staged same-dir rename derives a stem mapping and plans content rewrites
+#[test]
+fn from_git_renames_derives_mappings() {
+    let dir = setup_rename_example();
+    git(dir.path(), &["mv", "src/oldname.ts", "src/newname.ts"]);
+    let res = rep(dir.path(), &["plan", "--from-git-renames", "--json"]);
+    assert_eq!(res.code, 0, "plan failed: {}", res.stdout);
+    let json = res.json();
+    assert_eq!(json["derived"]["from_git_renames"], true);
+    assert_eq!(json["derived"]["mappings"][0]["from"], "oldname");
+    assert_eq!(json["derived"]["mappings"][0]["to"], "newname");
+    assert!(json["content"]["replacements"].as_u64().unwrap() > 0);
+    // The derived mapping lands in plan.json like a manual one.
+    let plan_id = json["plan_id"].as_str().unwrap();
+    let plan: Value = serde_json::from_str(&read(
+        dir.path(),
+        &format!(".rep/plans/{plan_id}/plan.json"),
+    ))
+    .unwrap();
+    assert!(
+        plan["mappings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["from"] == "oldname" && m["to"] == "newname")
+    );
+}
+
+// a file-to-dir move cannot be expressed as a token mapping and is reported
+#[test]
+fn from_git_renames_file_to_dir_is_underivable() {
+    let dir = init_repo();
+    write(dir.path(), "scenes/38_x.ts", "scene\n");
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "init"]);
+    std::fs::create_dir_all(dir.path().join("scenes/x")).unwrap();
+    git(dir.path(), &["mv", "scenes/38_x.ts", "scenes/x/scene.ts"]);
+    let res = rep(dir.path(), &["plan", "--from-git-renames", "--json"]);
+    assert_eq!(res.code, 2, "expected no-op: {}", res.stdout);
+    let json = res.json();
+    assert_eq!(json["no_op"], true);
+    let und = &json["derived"]["underivable"][0];
+    assert_eq!(und["from"], "scenes/38_x.ts");
+    assert_eq!(und["reason"], "directory_changed");
+}
+
+// no staged renames at all is a clean no-op, not an error
+#[test]
+fn from_git_renames_without_staged_renames_exit_2() {
+    let dir = setup_rename_example();
+    let res = rep(dir.path(), &["plan", "--from-git-renames", "--json"]);
+    assert_eq!(res.code, 2);
+    let json = res.json();
+    assert_eq!(json["derived"]["mappings"].as_array().unwrap().len(), 0);
+    assert_eq!(json["derived"]["underivable"].as_array().unwrap().len(), 0);
+}
+
+// a derived FROM duplicating a manual --map FROM hits the usual validation
+#[test]
+fn from_git_renames_duplicate_with_map_exit_10() {
+    let dir = setup_rename_example();
+    git(dir.path(), &["mv", "src/oldname.ts", "src/newname.ts"]);
+    let res = rep(
+        dir.path(),
+        &[
+            "plan",
+            "--map",
+            "oldname=other",
+            "--from-git-renames",
+            "--json",
+        ],
+    );
+    assert_eq!(res.code, 10);
+}
+
+// two staged renames deriving different TOs for the same FROM name both paths
+#[test]
+fn from_git_renames_conflicting_derivations_exit_10() {
+    let dir = init_repo();
+    write(dir.path(), "a/x.ts", "a\n");
+    write(dir.path(), "b/x.ts", "b\n");
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "init"]);
+    git(dir.path(), &["mv", "a/x.ts", "a/y.ts"]);
+    git(dir.path(), &["mv", "b/x.ts", "b/z.ts"]);
+    let res = rep(dir.path(), &["plan", "--from-git-renames", "--json"]);
+    assert_eq!(res.code, 10);
+    let msg = res.json()["error"]["message"].as_str().unwrap().to_string();
+    assert!(msg.contains("a/x.ts"), "message: {msg}");
+    assert!(msg.contains("b/x.ts"), "message: {msg}");
+}
+
+// derived mappings merge with unrelated manual --map entries
+#[test]
+fn from_git_renames_merges_with_manual_maps() {
+    let dir = init_repo();
+    write(dir.path(), "src/oldname.ts", "export const OLDNAME = 1\n");
+    write(dir.path(), "README.md", "oldname OLDNAME\n");
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "init"]);
+    git(dir.path(), &["mv", "src/oldname.ts", "src/newname.ts"]);
+    let res = rep(
+        dir.path(),
+        &[
+            "plan",
+            "--map",
+            "OLDNAME=NEWNAME",
+            "--from-git-renames",
+            "--json",
+        ],
+    );
+    assert_eq!(res.code, 0, "plan failed: {}", res.stdout);
+    let plan_id = res.json()["plan_id"].as_str().unwrap().to_string();
+    let plan: Value = serde_json::from_str(&read(
+        dir.path(),
+        &format!(".rep/plans/{plan_id}/plan.json"),
+    ))
+    .unwrap();
+    let froms: Vec<&str> = plan["mappings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["from"].as_str().unwrap())
+        .collect();
+    assert_eq!(froms, vec!["OLDNAME", "oldname"]);
+}
+
+// rep show surfaces the derived block recorded in the plan
+#[test]
+fn show_includes_derived_block() {
+    let dir = setup_rename_example();
+    git(dir.path(), &["mv", "src/oldname.ts", "src/newname.ts"]);
+    let res = rep(dir.path(), &["plan", "--from-git-renames", "--json"]);
+    assert_eq!(res.code, 0, "plan failed: {}", res.stdout);
+    let res = rep(dir.path(), &["show", "--json"]);
+    assert_eq!(res.code, 0, "show failed: {}", res.stdout);
+    assert_eq!(res.json()["derived"]["mappings"][0]["from"], "oldname");
+}
+
 // matched_directories reports the token-bearing directory prefix
 #[test]
 fn matched_directory_prefix() {

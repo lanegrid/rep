@@ -6,7 +6,7 @@
 
 use serde::Serialize;
 
-use crate::artifacts::{self, Artifacts, ContentFile, NextStep, RepoInfo};
+use crate::artifacts::{self, Artifacts, ContentFile, DerivedInfo, NextStep, RepoInfo};
 use crate::error::Result;
 use crate::output;
 use crate::path_rename::Rename;
@@ -44,6 +44,8 @@ struct ShowOutput {
     repo: RepoInfo,
     scope: Scope,
     mappings: Vec<Mapping>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    derived: Option<DerivedInfo>,
     content: ContentSummary,
     paths: PathsSummary,
     skipped_count: usize,
@@ -91,6 +93,7 @@ pub fn run(opts: ShowOpts, json: bool) -> Result<i32> {
         repo: plan.repo,
         scope: plan.scope,
         mappings: plan.mappings,
+        derived: plan.derived,
         content: ContentSummary {
             enabled: plan.content.enabled,
             matched_files: plan.content.matched_files,
@@ -133,6 +136,15 @@ fn print_human(out: &ShowOutput) {
     println!("  mappings:");
     for m in &out.mappings {
         println!("    {} -> {}", m.from, m.to);
+    }
+    if let Some(derived) = &out.derived {
+        println!(
+            "  derived from staged git renames: {} mappings",
+            derived.mappings.len()
+        );
+        for u in &derived.underivable {
+            println!("    underivable: {} -> {} ({})", u.from, u.to, u.reason);
+        }
     }
     println!(
         "  content: {} replacements in {} files",
