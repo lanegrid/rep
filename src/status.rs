@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 
-use crate::artifacts::{self, STATE_NONE};
+use crate::artifacts::{self, NextStep, STATE_NONE, next_steps};
 use crate::error::Result;
 use crate::output;
 use crate::text::Mapping;
@@ -18,11 +18,6 @@ struct PlanInfo {
 #[derive(Serialize)]
 struct RepoInfo {
     tracked_tree_clean: bool,
-}
-
-#[derive(Serialize)]
-struct NextStep {
-    command: String,
 }
 
 #[derive(Serialize)]
@@ -78,18 +73,6 @@ pub fn run(json: bool) -> Result<i32> {
     }
 
     Ok(0)
-}
-
-fn next_steps(state: &str, plan_id: &str) -> Vec<NextStep> {
-    match state {
-        artifacts::STATE_PLANNED => vec![NextStep {
-            command: format!("rep apply --plan {plan_id} --json"),
-        }],
-        artifacts::STATE_APPLIED => vec![NextStep {
-            command: format!("rep residual --plan {plan_id} --json"),
-        }],
-        _ => vec![],
-    }
 }
 
 fn print_human(report: &StatusReport) {

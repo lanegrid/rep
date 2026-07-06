@@ -138,6 +138,26 @@ pub fn update_plan(root: &Path, plan: &Plan) -> Result<()> {
     write_json(&path, plan)
 }
 
+/// A suggested follow-up command for a plan in a given state.
+#[derive(Clone, Debug, Serialize)]
+pub struct NextStep {
+    pub command: String,
+}
+
+/// The follow-up commands for a plan in `state`; shared by `rep status` and
+/// `rep show` so both always suggest the same next action.
+pub fn next_steps(state: &str, plan_id: &str) -> Vec<NextStep> {
+    match state {
+        STATE_PLANNED => vec![NextStep {
+            command: format!("rep apply --plan {plan_id} --json"),
+        }],
+        STATE_APPLIED => vec![NextStep {
+            command: format!("rep residual --plan {plan_id} --json"),
+        }],
+        _ => vec![],
+    }
+}
+
 /// Resolve the most recent plan id from the active-state pointer — the plan
 /// `rep status` reports. Backs `--last` so callers need not copy plan ids.
 pub fn last_plan_id(root: &Path) -> Result<String> {

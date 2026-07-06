@@ -191,6 +191,39 @@ if anything is left.")]
         tracked_only: bool,
     },
 
+    /// Inspect a saved plan (summary; add --files/--skipped/--preview detail)
+    #[command(long_about = "\
+Inspect a saved plan without reading .rep/plans/<plan-id>/ files by hand.
+
+Prints the plan's mappings, counts, state, and suggested next command. \
+--files, --skipped, and --preview add the corresponding detail sections. \
+With no --plan, shows the most recent plan (the one 'rep status' shows).")]
+    #[command(
+        after_help = "Example:\n  rep show                           # most recent plan\n  rep show --plan <plan-id> --skipped"
+    )]
+    Show {
+        /// The <plan-id> to inspect (defaults to the most recent plan)
+        #[arg(long, conflicts_with = "last")]
+        plan: Option<String>,
+
+        /// Inspect the most recent plan (the default; accepted for symmetry
+        /// with `rep apply --last`)
+        #[arg(long)]
+        last: bool,
+
+        /// Also list planned content files and path renames
+        #[arg(long)]
+        files: bool,
+
+        /// Also list skipped paths with reasons
+        #[arg(long)]
+        skipped: bool,
+
+        /// Also print the line-level content preview
+        #[arg(long)]
+        preview: bool,
+    },
+
     /// Show rep's current state for this repository (last plan, etc.)
     Status,
 }

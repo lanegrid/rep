@@ -713,6 +713,111 @@ fn residual_token_with_last_exit_10() {
     assert_eq!(res.code, 10);
 }
 
+// bare rep show reports the most recent plan; detail sections stay absent
+#[test]
+fn show_defaults_to_last_plan() {
+    let dir = setup_success_example();
+    let plan_id = plan_three_maps(dir.path(), &[]);
+    let res = rep(dir.path(), &["show", "--json"]);
+    assert_eq!(res.code, 0, "show failed: {}", res.stdout);
+    let json = res.json();
+    assert_eq!(json["schema_version"], "rep.show.v1");
+    assert_eq!(json["plan_id"].as_str().unwrap(), plan_id);
+    assert_eq!(json["state"], "planned");
+    assert!(json["content"]["replacements"].as_u64().unwrap() > 0);
+    assert!(json.get("files").is_none());
+    assert!(json.get("skipped").is_none());
+    assert!(json.get("preview").is_none());
+}
+
+// --files/--skipped/--preview add their sections to the summary
+#[test]
+fn show_sections_add_detail() {
+    let dir = setup_success_example();
+    let plan_id = plan_three_maps(dir.path(), &["--rename-paths", "--exclude", "README.md"]);
+    let res = rep(
+        dir.path(),
+        &[
+            "show",
+            "--plan",
+            &plan_id,
+            "--files",
+            "--skipped",
+            "--preview",
+            "--json",
+        ],
+    );
+    assert_eq!(res.code, 0, "show failed: {}", res.stdout);
+    let json = res.json();
+    let content_files = json["files"]["content"].as_array().unwrap();
+    assert!(content_files.iter().any(|f| f["path"] == "src/oldname.ts"));
+    let renames = json["files"]["renames"].as_array().unwrap();
+    assert!(renames.iter().any(|r| r["from"] == "src/oldname.ts"));
+    let skipped = json["skipped"].as_array().unwrap();
+    assert!(
+        skipped
+            .iter()
+            .any(|s| s["path"] == "README.md" && s["reason"] == "excluded_by_glob")
+    );
+    assert!(json["preview"].as_str().unwrap().contains("src/oldname.ts"));
+}
+
+// show reflects the applied state and suggests residual next
+#[test]
+fn show_after_apply_suggests_residual() {
+    let dir = setup_success_example();
+    plan_three_maps(dir.path(), &[]);
+    let res = rep(dir.path(), &["apply", "--last", "--json"]);
+    assert_eq!(res.code, 0, "apply failed: {}", res.stdout);
+    let res = rep(dir.path(), &["show", "--last", "--json"]);
+    assert_eq!(res.code, 0, "show failed: {}", res.stdout);
+    let json = res.json();
+    assert_eq!(json["state"], "applied");
+    let next = json["next"][0]["command"].as_str().unwrap();
+    assert!(next.contains("rep residual"), "next: {next}");
+}
+
+// an unknown plan id is a usage error
+#[test]
+fn show_unknown_plan_exit_10() {
+    let dir = setup_success_example();
+    plan_three_maps(dir.path(), &[]);
+    let res = rep(dir.path(), &["show", "--plan", "bogus", "--json"]);
+    assert_eq!(res.code, 10);
+}
+
+// --plan and --last are mutually exclusive
+#[test]
+fn show_plan_and_last_conflict_exit_10() {
+    let dir = setup_success_example();
+    let plan_id = plan_three_maps(dir.path(), &[]);
+    let res = rep(
+        dir.path(),
+        &["show", "--plan", &plan_id, "--last", "--json"],
+    );
+    assert_eq!(res.code, 10);
+}
+
+// show with no plans yet points at rep plan
+#[test]
+fn show_without_plans_exit_10() {
+    let dir = setup_success_example();
+    let res = rep(dir.path(), &["show", "--json"]);
+    assert_eq!(res.code, 10);
+    let msg = res.json()["error"]["message"].as_str().unwrap().to_string();
+    assert!(msg.contains("rep plan"), "message: {msg}");
+}
+
+// human-mode show succeeds
+#[test]
+fn show_human_smoke() {
+    let dir = setup_success_example();
+    plan_three_maps(dir.path(), &[]);
+    let res = rep(dir.path(), &["show"]);
+    assert_eq!(res.code, 0, "show failed: {}", res.stdout);
+    assert!(res.stdout.contains("oldname -> newname"), "{}", res.stdout);
+}
+
 // matched_directories reports the token-bearing directory prefix
 #[test]
 fn matched_directory_prefix() {

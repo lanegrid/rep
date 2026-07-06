@@ -17,6 +17,7 @@ pub mod residual;
 pub mod scanner;
 pub mod schema;
 pub mod scope;
+pub mod show;
 pub mod status;
 pub mod text;
 

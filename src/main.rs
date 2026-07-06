@@ -10,8 +10,9 @@ use rep::error::{RepError, Result};
 use rep::planner::PlanOpts;
 use rep::residual::ResidualOpts;
 use rep::scope::ScopeOpts;
+use rep::show::ShowOpts;
 use rep::text;
-use rep::{applier, output, planner, residual, scanner, status};
+use rep::{applier, output, planner, residual, scanner, show, status};
 
 fn main() -> ExitCode {
     let cli = match Cli::try_parse() {
@@ -87,6 +88,7 @@ fn suggested_command() -> &'static str {
         Some("plan") => "rep plan --map old_name=new_name",
         Some("apply") => "rep apply --last",
         Some("residual") => "rep residual old_name",
+        Some("show") => "rep show",
         Some("status") => "rep status",
         _ => "rep scan old_name        (list every command with 'rep --help')",
     }
@@ -193,6 +195,24 @@ fn dispatch(cli: Cli) -> Result<i32> {
                     exclude,
                     tracked_only: true,
                 },
+            },
+            json,
+        ),
+
+        // `last` only exists for CLI symmetry; `plan: None` already means the
+        // most recent plan.
+        Commands::Show {
+            plan,
+            last: _,
+            files,
+            skipped,
+            preview,
+        } => show::run(
+            ShowOpts {
+                plan,
+                files,
+                skipped,
+                preview,
             },
             json,
         ),
