@@ -108,6 +108,26 @@ You describe the rename as one or more literal mappings with --map FROM=TO \
         #[arg(long = "map-file", value_name = "PATH")]
         map_file: Vec<String>,
 
+        /// Derive FROM=TO mappings from renames staged in the git index
+        /// (e.g. after `git mv old.ts new.ts`)
+        #[arg(
+            long = "from-git-renames",
+            long_help = "Derive FROM=TO mappings from renames staged in the git index (e.g. after \
+`git mv old.ts new.ts`; unstaged renames cannot be detected by git).
+
+Only a rename that keeps its directory and extension but changes the file stem \
+is derivable; every other staged rename is reported as 'underivable' with a \
+reason, so you can describe it with explicit --map entries. Derived mappings \
+merge with --map/--map-file and are recorded in the plan output under 'derived'.
+
+Note that staged renames leave the tracked tree dirty, so the plan cannot be \
+applied until they are committed -- and committing moves HEAD, which staleness \
+checks reject. The working recipe: stage renames, run \
+'rep plan --from-git-renames --json' to derive and record the mappings, commit \
+the renames, then re-plan from the recorded mappings and apply."
+        )]
+        from_git_renames: bool,
+
         /// Disable content replacement (enabled by default)
         #[arg(long = "no-content")]
         no_content: bool,

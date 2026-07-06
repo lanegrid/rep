@@ -13,6 +13,7 @@ pub mod globset;
 pub mod output;
 pub mod path_rename;
 pub mod planner;
+pub mod rename_derive;
 pub mod residual;
 pub mod scanner;
 pub mod schema;
