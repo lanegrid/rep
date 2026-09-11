@@ -670,6 +670,94 @@ fn apply_last_applies_latest_plan() {
     assert_eq!(res.json()["plan_id"].as_str().unwrap(), second);
 }
 
+#[test]
+fn unsuccessful_plan_blocks_last_but_preserves_explicit_plan() {
+    for (args, code) in [
+        (vec!["plan", "--map", "invalid", "--json"], 10),
+        (vec!["--json", "plan", "--unknown"], 10),
+        (vec!["plan", "--map", "--json"], 10),
+        (vec!["plan", "--map-file", "missing", "--json"], 10),
+        (vec!["plan", "--map", "absent=unused", "--json"], 2),
+        (
+            vec![
+                "plan",
+                "--map",
+                "src/oldname.ts=README.md",
+                "--rename-paths",
+                "--json",
+            ],
+            6,
+        ),
+    ] {
+        let dir = setup_success_example();
+        let id = plan_three_maps(dir.path(), &[]);
+        let result = rep(dir.path(), &args);
+        assert_eq!(result.code, code, "{args:?}: {}", result.stdout);
+        let blocked = rep(dir.path(), &["apply", "--last", "--json"]);
+        assert_eq!(blocked.code, 5, "{}", blocked.stdout);
+        assert_eq!(blocked.json()["error"]["kind"], "stale_plan");
+        assert!(tree_clean(dir.path()));
+        let status = rep(dir.path(), &["status", "--json"]).json();
+        assert_eq!(status["apply_last_blocked"], true);
+        assert_eq!(status["active_plan_id"], id);
+        assert_eq!(status["next"], serde_json::json!([]));
+        assert_eq!(rep(dir.path(), &["show", "--last", "--json"]).code, 0);
+        assert_eq!(rep(dir.path(), &["apply", "--plan", &id, "--json"]).code, 0);
+        // Explicit apply must not silently reset the failed-attempt guard.
+        assert_eq!(rep(dir.path(), &["apply", "--last", "--json"]).code, 5);
+    }
+}
+
+#[test]
+fn successful_replan_restores_last_after_incomplete_attempt() {
+    let dir = setup_success_example();
+    plan_three_maps(dir.path(), &[]);
+    // This is also the durable state left by a killed planning process.
+    rep::artifacts::begin_plan_attempt(dir.path()).unwrap();
+    assert_eq!(rep(dir.path(), &["apply", "--last", "--json"]).code, 5);
+    let id = plan_three_maps(dir.path(), &[]);
+    assert_eq!(
+        rep(dir.path(), &["status", "--json"]).json()["apply_last_blocked"],
+        false
+    );
+    let result = rep(dir.path(), &["apply", "--last", "--json"]);
+    assert_eq!(result.code, 0);
+    assert_eq!(result.json()["plan_id"], id);
+}
+
+#[test]
+fn config_failure_blocks_last_after_config_is_removed() {
+    let dir = setup_success_example();
+    plan_three_maps(dir.path(), &[]);
+    write(dir.path(), "rep.toml", "[invalid\n");
+    assert_eq!(
+        rep(dir.path(), &["plan", "--map", "oldname=newname", "--json"]).code,
+        10
+    );
+    std::fs::remove_file(dir.path().join("rep.toml")).unwrap();
+    assert!(tree_clean(dir.path()));
+    assert_eq!(rep(dir.path(), &["apply", "--last", "--json"]).code, 5);
+}
+
+#[test]
+fn failed_first_plan_is_visible_in_status() {
+    let dir = setup_success_example();
+    assert_eq!(rep(dir.path(), &["plan", "--json"]).code, 10);
+    let status = rep(dir.path(), &["status", "--json"]).json();
+    assert_eq!(status["state"], "none");
+    assert_eq!(status["apply_last_blocked"], true);
+    assert_eq!(rep(dir.path(), &["apply", "--last", "--json"]).code, 5);
+}
+
+#[test]
+fn help_and_other_command_errors_do_not_invalidate_last() {
+    let dir = setup_success_example();
+    plan_three_maps(dir.path(), &[]);
+    assert_eq!(rep(dir.path(), &["plan", "--help"]).code, 0);
+    assert_eq!(rep(dir.path(), &["scan", "--unknown", "--json"]).code, 10);
+    assert_eq!(rep(dir.path(), &["apply", "--last", "--json"]).code, 0);
+}
+
 // --plan and --last are mutually exclusive
 #[test]
 fn apply_plan_and_last_conflict_exit_10() {

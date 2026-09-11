@@ -54,7 +54,14 @@ pub fn run(plan_id: Option<String>, json: bool) -> Result<i32> {
     let root = git::discover_root()?;
     let plan_id = match plan_id {
         Some(id) => id,
-        None => artifacts::last_plan_id(&root)?,
+        None => {
+            if artifacts::apply_last_blocked(&root)? {
+                return Err(RepError::StalePlan(
+                    "the latest plan attempt did not complete successfully; run `rep plan ...` again, or inspect an older plan with `rep show --plan <plan-id>` before explicitly applying it with `rep apply --plan <plan-id>`".to_string(),
+                ));
+            }
+            artifacts::last_plan_id(&root)?
+        }
     };
     let mut plan = artifacts::read_plan(&root, &plan_id)?;
 

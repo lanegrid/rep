@@ -101,6 +101,23 @@ pub fn rep_dir(root: &Path) -> PathBuf {
     root.join(".rep")
 }
 
+/// A separate marker preserves older plan artifacts for explicit inspection.
+/// Its presence is fail-closed, including process interruption and write errors.
+pub fn begin_plan_attempt(root: &Path) -> Result<()> {
+    std::fs::create_dir_all(rep_dir(root))?;
+    std::fs::write(rep_dir(root).join("plan-attempt-incomplete"), b"")?;
+    Ok(())
+}
+
+pub fn complete_plan_attempt(root: &Path) -> Result<()> {
+    std::fs::remove_file(rep_dir(root).join("plan-attempt-incomplete"))?;
+    Ok(())
+}
+
+pub fn apply_last_blocked(root: &Path) -> Result<bool> {
+    Ok(rep_dir(root).join("plan-attempt-incomplete").try_exists()?)
+}
+
 /// Path to a specific plan directory.
 pub fn plan_dir(root: &Path, plan_id: &str) -> PathBuf {
     rep_dir(root).join("plans").join(plan_id)
