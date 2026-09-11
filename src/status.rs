@@ -23,6 +23,7 @@ struct RepoInfo {
 #[derive(Serialize)]
 struct StatusReport {
     schema_version: String,
+    apply_last_blocked: bool,
     state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     active_plan_id: Option<String>,
@@ -37,9 +38,11 @@ pub fn run(json: bool) -> Result<i32> {
     let root = git::discover_root()?;
     let state = artifacts::read_state(&root)?;
     let tracked_tree_clean = git::tracked_tree_clean(&root);
+    let apply_last_blocked = artifacts::apply_last_blocked(&root)?;
 
     let report = match state {
         None => StatusReport {
+            apply_last_blocked,
             schema_version: schema::STATUS.to_string(),
             state: STATE_NONE.to_string(),
             active_plan_id: None,
@@ -54,8 +57,13 @@ pub fn run(json: bool) -> Result<i32> {
                 content_replacements: p.content.replacements,
                 path_renames: p.paths.renames.len(),
             });
-            let next = next_steps(&state.state, &state.active_plan_id);
+            let next = if apply_last_blocked {
+                vec![]
+            } else {
+                next_steps(&state.state, &state.active_plan_id)
+            };
             StatusReport {
+                apply_last_blocked,
                 schema_version: schema::STATUS.to_string(),
                 state: state.state,
                 active_plan_id: Some(state.active_plan_id),
@@ -76,6 +84,11 @@ pub fn run(json: bool) -> Result<i32> {
 }
 
 fn print_human(report: &StatusReport) {
+    if report.apply_last_blocked {
+        output::info(
+            "apply --last blocked: latest plan attempt did not complete successfully; run rep plan again, or inspect an older plan explicitly.",
+        );
+    }
     output::info(&format!("state: {}", output::bold(&report.state)));
     if let Some(id) = &report.active_plan_id {
         println!("  active plan: {id}");

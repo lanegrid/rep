@@ -164,7 +164,9 @@ the renames, then re-plan from the recorded mappings and apply."
 Apply a previously previewed plan to the working tree.
 
 <PLAN> is the <plan-id> printed by 'rep plan'; '--last' applies the most \
-recent plan (the one 'rep status' shows) without copying the id. apply \
+recent plan (the one 'rep status' shows) without copying the id. '--last' is \
+blocked if the latest plan attempt failed, found no changes, or was interrupted; \
+create a successful new plan to enable it again. apply \
 refuses to run if tracked files changed since the plan was built, so the \
 preview always matches what gets written.")]
     #[command(

@@ -16,13 +16,52 @@ use rep::text;
 use rep::{applier, git, output, planner, rename_derive, residual, scanner, show, status};
 
 fn main() -> ExitCode {
-    let cli = match Cli::try_parse() {
+    // Record intent before validating arguments or reading mapping input. A
+    // failed or interrupted attempt must never fall back to an older plan.
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let planning = args
+        .iter()
+        .find(|a| !a.to_string_lossy().starts_with('-'))
+        .is_some_and(|a| a == "plan");
+    let parsed = Cli::try_parse();
+    let help = parsed.as_ref().err().is_some_and(|e| {
+        matches!(
+            e.kind(),
+            ErrorKind::DisplayHelp
+                | ErrorKind::DisplayVersion
+                | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        )
+    });
+    let attempt = if planning && !help {
+        git::discover_root().and_then(|root| {
+            rep::artifacts::begin_plan_attempt(&root)?;
+            Ok(Some(root))
+        })
+    } else {
+        Ok(None)
+    };
+    if let Err(e) = &attempt {
+        if args.iter().any(|a| a == "--json") {
+            let _ = output::print_json(&e.to_output());
+        } else {
+            output::error(&e.to_string());
+        }
+        return ExitCode::from(e.exit_code() as u8);
+    }
+    let cli = match parsed {
         Ok(cli) => cli,
         Err(e) => return handle_parse_error(e),
     };
     let json = cli.json;
 
-    let result = dispatch(cli);
+    let result = dispatch(cli).and_then(|code| {
+        if code == 0 {
+            if let Some(root) = attempt? {
+                rep::artifacts::complete_plan_attempt(&root)?;
+            }
+        }
+        Ok(code)
+    });
 
     match result {
         Ok(code) => ExitCode::from(code as u8),
